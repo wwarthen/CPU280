@@ -1,0 +1,386 @@
+	title	'Format Handling Routines of CP/M-3 BIOS'
+	.z280
+	.xlist
+	maclib	Z280EQU
+	maclib	CPU280
+	maclib	OPTIONS
+	.list
+
+; 230191 Tilmann Reh
+; 930103 TR: RESDMA --> DMA, xLENGTH --> xxLEN, WDMAPB --> WRDMAPB
+; 930104 TR: READ1/WRITE1 --> DSKRD1/DSKWR1
+; 950109 TR: HD-Bug auch beim Formatieren, Versuche auf 2 reduziert
+
+	dseg			; Aufruf durch 'System Call', daher gebankt
+
+; USERF wird hier f}r verschiedene spezielle BIOS-Funktionen benutzt.
+; ]bergeben wird jeweils eine Adresse in BC und ein Funktionscode in E.
+; Alle Funktionen beziehen sich auf das augenblicklich eingeloggte Laufwerk
+; (DRIVE,CURDPH,DRVTYP).
+; Alle nicht definierten Funktionen bewirken einen ERROR-TRAP.
+
+userf::	ld	a,e		; F-Code
+	cp	maxfun
+	jr	nc,tohigh	; zu hohe Funktionsnummer: TRAP
+	add	a,a
+	exts	a		; verdoppelt nach HL
+	ldw	hl,(hl++usetab)	; UP-Adresse aus Tabelle holen
+	jp	(hl)		; UP anspringen (RET --> SYSRET)
+
+usetab:	defw	vrsion		; 0 : Get BIOS Version Number
+	defw	setdel		; 1 : Set Motor-Off Delay
+	defw	getdrv		; 2 : Get Selected Drive
+	defw	gettyp		; 3 : Get Selected Drive Type
+	defw	pseek		; 4 : Set Physical Track Direct (Seek)
+	defw	checkd		; 5 : Check Density
+	defw	readid		; 6 : Read ID
+	defw	readp		; 7 : Read Physical Sector
+	defw	writep		; 8 : Write Physical Sector
+	defw	format		; 9 : Format a Track
+	defw	setfrm		;10 : Set BIOS Parameter Blocks
+	defw	getres		;11 : Get Result Address
+	defw	check		;12 : Error-Check
+	defw	rddiag		;13 : Read Track Diagnostic
+maxfun	equ	($-usetab) shr 1 ; Anzahl Funktionen
+
+; nicht definierter Aufruf (falsche Funktionsnummer): TRAP-Meldung
+
+tohigh:	pop	hl		; (SYSRET)
+	pop	hl		; (MSR)
+	pop	hl		; (next instruction)
+	push	de		; Funktionscode retten
+	ld	hl,trpmsg
+	call	pmsg##		; Meldung 'BIOS-TRAP at ' ausgeben
+	ldctl	hl,usp		; Stack des aufrufenden Programms
+	ldw	hl,(hl)		; ge'pop'te Aufrufadresse
+	dec	hl
+	dec	hl
+	dec	hl		; Aufruf 3 Bytes vor Return-Adresse (bei CALL)
+	call	hexadr##	; Adresse ausgeben
+	ld	hl,fcode
+	call	pmsg##		; Meldung ' Function = ' ausgeben
+	pop	hl		; Funktionscode
+	ld	h,0
+	call	pdec##		; Funktionscode dezimal ausgeben
+	jp	wboot##		; Warm-Boot ausf}hren
+	
+;***********************************************************************
+;**                    Get BIOS Version Number                        **
+;***********************************************************************
+; Versionsnummer wird in HL bin{r }bergeben (H=Main, L=Update).
+; Diese Versionsnummer entspricht nicht der BIOS-Revision, sondern
+; beschreibt lediglich den Stand (die Version) der UserF-Schnittstelle.
+
+vrsion:	ld	hl,101h		; UserF Version 1.01
+	ret
+
+;***********************************************************************
+;**                      Set Motor-Off Delay                          **
+;***********************************************************************
+; Motor-Off-Delay wird in 10-ms-Schritten gesetzt. Wert in BC.
+
+setdel:	ld	(delay##),bc	; Delay neu setzen
+	ret			; zur}ck (SWI1)
+
+;***********************************************************************
+;**                      Get Selected Drive                           **
+;***********************************************************************
+; das derzeit selektierte Laufwerk wird in HL }bergeben.
+
+getdrv:	ld	a,(drive##)
+	exts	a
+	ret
+
+;***********************************************************************
+;**                          Get Type                                 **
+;***********************************************************************
+; Laufwerkstyp abfragen (Wert aus NVRAM). Ergebnisse in HL (2..7).
+
+gettyp:	ld	a,(drvtyp##)	; aktueller Laufwerkstyp
+	exts	a
+	ret
+
+;***********************************************************************
+;**               Set Physical Track Direct (Seek)                    **
+;***********************************************************************
+; Track wird in (B)C }bergeben. Keine Verdopplung bei 48 TPI !
+
+pseek:	push	bc
+	call	motonw##	; Motor an
+	pop	bc
+	ld	a,c
+	call	seek##		; SEEK-Routine aus DISKIO
+	jp	motoff##
+
+;***********************************************************************
+;**                  Check Density (durch ID-Read)                    **
+;***********************************************************************
+; An der aktuellen Position wird ein Density-Check durchgef}hrt. Danach sind
+; DENSE und Takteinstellung g}ltig. Aufruf mit gew{hltem HEAD in C (0/1).
+; Bei R}ckkehr: H=FF bei Fehler, sonst H=0. In L wird die festgestellte
+; Dichte }bergeben (1=FM,2=MFM,4=HD-MFM).
+
+checkd:	call	gthead		; HEAD aus C auswerten
+	call	motonw##
+	call	chkden##	; Dichte pr}fen
+	push	af
+	call	motoff##
+	pop	af
+	ld	h,-1
+	ret	c		; Time-Out
+	ret	nz		; Fehler
+	ld	hl,4
+	ld	a,(ldflag##)
+	or	a		; Low-Density?
+	ret	z		; HD : RET mit HL=0004
+	ld	a,(dense##)
+	or	a
+	ld	l,2
+	ret	nz		; MFM : RET mit HL=0002
+	dec	l		; FM : HL=0001
+	ret
+
+;***********************************************************************
+;**                   Read next ID Information                        **
+;***********************************************************************
+; Alle Einstellungen werden von vorher (CHECKD!) }bernommen. Head in C.
+; 200ms-Z{hler f}r Status-Check wird jedesmal hochgesetzt, damit der Format-
+; Manager die richtige Reihenfolge mitbekommt.
+
+readid:	call	gthead		; HEAD aus C auswerten
+	ld	(cnt10-1),20	; *** Status-Check-Z{hler auf Maximum
+	call	motonw##
+	ld	a,(dense##)	; aktuelle Dichte
+	call	chkd2##		; damit READ ID
+	push	af
+	call	motoff##
+	pop	af
+	ld	hl,-1
+	ret	c		; Time-Out:
+	ret	nz		; Fehler: RET mit FFFF
+	inc	hl
+	ret			; OK: RET mit HL=0
+
+;***********************************************************************
+;**                   Read Physical Sector                            **
+;***********************************************************************
+; Eingang: BC zeigt auf Pufferbereich. Darin: 'C H R N' f}r FDC.
+;          Es wird grunds{tzlich auf Seite 0 gelesen (Parameter!).
+; Ausgang: Puffer mit gelesenen Daten gef}llt.
+;          Fehlerfrei wenn HL=0, bei Fehlern HL=FFxx.
+
+readp:	ld	(DMA),bc	; sp{tere Zieladresse
+	ld	a,1
+	ld	(dbnk),a	; Zielbank
+	call	getbuf		; ab BC nach BUFFER kopieren
+	call	motonw		; Motor an und warten
+	ld	hl,pdrive
+	res	2,(hl)		; physikalisch immer Head 0
+	ld	hl,(buffer)	; L=Cylinder, H=Head
+	ld	(ptrack),hl
+	ld	a,l
+	call	seek		; Spur in A anfahren
+	ld	hl,(buffer+2)
+	ld	(psect),hl	; Record und Sector-Shift }bertragen
+	ld	a,l
+	ld	(eot),a		; EOT = Record
+	ld	a,h
+	call	setln1		; L{ngen f}r DMA setzen
+	ld	hl,(curdph)
+	dec	hl
+	dec	hl		; Zeiger auf Bit-Flags
+	push	(hl)		; alle Flags retten
+	push	hl		; Zeiger retten
+	res	3,(hl)		; aktuelles Invert-Flag l|schen
+	ld	(quiet),-1	; keine Fehlermeldung!
+	call	DskRd1		; Sektor lesen
+	ld	(quiet),0	; Fehlermeldungen wieder an
+	pop	hl		; Zeiger auf Bit-Flags
+	pop	(hl)		; Flags restaurieren
+	ld	hl,0
+	or	a
+	ret	z		; ok: HL=0
+	dec	hl		; sonst HL=FFFF: Lesefehler
+	ret
+
+;***********************************************************************
+;**                   Write Physical Sector                           **
+;***********************************************************************
+; S{mtliche Daten werden von vorhergehendem READ }bernommen, auch DMA-Adresse!
+; Ausgang HL: 0 ok, FFFF Schreibfehler, FFFE Protected.
+
+writep:	call	motonw##	; Motor anschalten und warten
+	ld	hl,(curdph##)
+	dec	hl
+	dec	hl		; Zeiger auf Bit-Flags
+	push	(hl)		; alle Flags retten
+	push	hl		; Zeiger retten
+	res	3,(hl)		; aktuelles Invert-Flag l|schen
+	call	DskWr1		; Sektor schreiben
+	pop	hl		; Zeiger auf Bit-Flags
+	pop	(hl)		; Flags restaurieren
+	ld	hl,0
+	or	a
+	ret	z		; ok: HL=0000
+	dec	hl
+	cp	2		; A=2 : WP ?
+	ret	nz		; Schreibfehler: HL=FFFF
+	dec	hl
+	ret			; WP : HL=FFFE
+
+;***********************************************************************
+;**                        Format A Track                             **
+;***********************************************************************
+; ]bergeben: BC zeigt auf Puffer, dieser enth{lt die folgenden Werte:
+; Zeiger auf Indexdaten (CHRN) : Integer;
+; Density, Head, SecShift, SecZahl, Gap3, Filler : Byte;
+; Ergebnis: FFFF = Schreibfehler, FFFD = NotReady, 0000 = ok
+
+; 910113 TR: Density-Angabe wird ignoriert, da BIOS-Parameter schon g}ltig!
+; (Im Format-Manager wird vorher 'Fremdformat bearbeiten' aktiviert)
+
+format:	call	getbuf		; Parameter in Puffer holen
+	ld	hl,(buffer)	; Zeiger auf CHRN-Tabelle
+	ld	(DMA),hl	; als DMA-Adresse einsetzen
+	ld	(dbnk),1	; DMA-Bank : 1
+	iopage	boardp
+	call	SetClk		; FDC-Takt entsprechend Low/High Density
+	ld	hl,(buffer+2)	; L = Density, H = Head
+	ld	a,0Dh
+	dec	l		; --> 0,1,3
+	jr	z,form1		; FM : Command = 0D
+	ld	a,4Dh		; MFM/HD : Command = 4D
+form1:	ld	(buffer+2),a	; als Befehl speichern
+	ld	a,h		; Head 0..1
+	rlca
+	rlca			; --> in Bit 2
+	or	a,(drive)	; Laufwerk dazu
+	ld	(buffer+3),a	; als US/HS speichern
+	ld	a,(buffer+5)	; Sectors per Track
+	multu	a,4		; HL = Anzahl Bytes f}r DMA-Transfer
+	ld	(WrLen),hl	; in DMA-PB einsetzen
+	call	motonw		; Motor an und warten
+	ldw	(retry),FrmRtr	; Einsprung f}r Wiederholungen
+FrmRtr:	ld	bc,602h		; maximal 2 Versuche, 6 Byte Befehlsl{nge
+formlp:	push	bc
+	ldw	(cmdadr),buffer+2 ; Befehlszeiger kurzfristig hier
+	ld	de,WrDmaPB
+	call	dskio		; DMA und FDC anwerfen
+	ldw	(cmdadr),clist	; Befehle wieder aus CLIST (evtl. in TIMERR!)
+	pop	bc
+	call	c,timerr	; Time-Out: User fragen
+	jr	c,formxe	; Abbruch: Ende mit HL=FFFF
+	call	errchk		; Fehler aufgetreten ?
+	ld	hl,0
+	jr	z,formex	; nein: Ende mit 0000 als Ergebnis
+	call	ChkBug		; bei Fehler: durch HD-Bug? 
+	jr	c,FrmRtr	; ja: von vorne, mit WorkAround
+	dec	c
+	jr	nz,formlp	; sonst max. 2 mal wiederholen
+formxe:	ld	hl,-1		; Fehler: Return mit FFFF
+formex:	exx			; Ergebnis retten
+	call	motoff		; Motor aus
+	ld	hl,(RdLen)
+	ld	(WrLen),hl	; DMA-L{nge restaurieren
+	exx			; Ergebniscode in HL
+	ret
+
+;***********************************************************************
+;**                   Set BIOS Parameter Blocks                       **
+;***********************************************************************
+; Parameterblocks des derzeit selektierten Laufwerks werden beschrieben.
+
+setfrm:	call	getbuf		; (BC) nach BUFFER kopieren
+	jp	actdpb		; Parameterblock setzen, RET
+
+;***********************************************************************
+;**                        Get Result Address                         **
+;***********************************************************************
+; Adresse von 'CHRN' in RESULT wird in HL }bergeben.
+
+getres:	ld	hl,result##+3
+	ret
+
+;***********************************************************************
+;**                         Error-Check                               **
+;***********************************************************************
+; RESULT wird mit entspr. Masken verkn}pft. HL=0 ok, FFFF nicht ok.
+
+check:	call	errchk##
+	ld	hl,0
+	ret	z		; ok: RET mit 0000
+	dec	hl
+	ret			; sonst FFFF
+
+;***********************************************************************
+;**                     Read Track Diagnostic                         **
+;***********************************************************************
+; Lesen einer ganzen Spur (Daten werden verworfen). FDC-Takt mu~ stimmen.
+; Eingang: BC zeigt auf Pufferbereich. Darin: 'C H R N' f}r FDC (1.Sektor)
+;          Daran anschlie~end Gesamtl{nge (Word), Kopf (Bit) und EOT (Byte).
+; Ausgang: Flag in HL: 0=fehlerfrei, bei Fehlern HL=FFxx.
+
+rddiag:	call	getbuf		; Buffer in System-Bank kopieren
+	ld	hl,(buffer)
+	ld	(ptrack),hl	; C H setzen
+	ld	hl,(buffer+2)
+	ld	(psect),hl	; R N setzen
+	ld	hl,(buffer+4)
+	ld	(geslen),hl	; Gesamtl{nge in Byte
+	ld	bc,(buffer+6)	; C=Kopf, B=EOT
+	call	gthead		; Kopf in pdrive einsetzen
+	ld	a,b
+	ld	(eot),a		; letzten Sektor setzen
+	ld	hl,dmapb
+	call	dmaset		; DMA aktivieren
+	ld	a,(dense)
+	or	2		; FDC Command: READ DIAGNOSTIC (READ TRACK)
+	ld	(clist),a
+	ld	b,9
+	call	intcom		; FDC starten
+	ld	hl,-1
+	ret	c		; Time-Out: Ende mit HL=FFFF
+	ld	a,(result)	; FDC Status 0
+	and	10010000b	; Normal und Abnormal Termination sind ok!
+	ret	nz		; Invalid Command oder Equipment Check (Home)
+	ld	a,(result+1)	; FDC Status 1
+	and	00110011b	; DE,OR,NW,MA sind Fehler (EN,ND ignorieren)
+	ret	nz
+	ld	a,(result+2)	; FDC Status 2
+	and	01110111b	; CM,DD,WC,SN,BC,MD sind Fehler (SH ist ok)
+	inc	hl	
+	ret			; ok: HL=0
+
+dmapb:	defb	dal0		  ; DMA 0
+	defw	diadum
+	defb	81h		  ; Dest: Dummy-Byte in System-Bank
+	defb	fdcdack,0,boardp  ; Src FDCDACK
+geslen: defs	2		  ; Gesamt-L{nge wird eingesetzt
+	defw	1110000010000100b ; DMA 0 burst enable, Read, noInc
+diadum:	defs	1
+
+; F}r einige Funktionen gemeinsam:
+; (BC) nach BUFFER kopieren (128 Byte).
+
+getbuf:	ld	d,b
+	ld	e,c		; Quellenadresse nach DE
+	ld	bc,1		; DestBank 0, SrcBank 1
+	call	xmove##		; Banks setzen
+	ld	hl,buffer##	; Zieladresse
+	ld	bc,128		; L{nge des Parameterblocks
+	jp	move##		; Parameterblock in Buffer }bertragen
+
+; Head aus C nach PDRIVE einsetzen.
+
+gthead:	ld	hl,pdrive##
+	res	2,(hl)		; Head vorl{ufig 0
+	bit	0,c
+	ret	z
+	set	2,(hl)		; MSB gesetzt : Head 1
+	ret
+
+trpmsg:	defm	bel,cr,lf,'BIOS-TRAP at ',0
+fcode:	defm	', Function = ',0
+
+	end
+

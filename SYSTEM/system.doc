@@ -1,0 +1,235 @@
+                  CPU280 System Software Information
+                  ==================================
+                      Tilmann Reh, 06 June 1993
+
+
+                     System Software Version 1.1
+                     ---------------------------
+
+The  new system software release 1.1 for the CPU280 is offered  freely 
+for  every  CPU280 owner or user. It is delivered as is,  without  any 
+guarantees.  So everyone may have a look at the software and find  out 
+what  he  has to change for getting it running with  his  environment. 
+However,  I tried to make the new version as modular and  portable  as 
+possible,  and  I  am always interested in receiving  bug  reports  or 
+suggestions for later releases.
+
+The  original system software delivered by me may be distributed  only 
+complete.  The version message at signon must not be changed.  Changed 
+versions  might  be further distributed, if it  is  stated  absolutely 
+clearly that it is not the original version. Everyone who changes  the 
+system  software code (not only disk parameters etc.) should  add  his 
+initials  and  his  internal version number to the  BIOS  signon  (for 
+example,  for the 5th change being made by me, the signon  could  read 
+"V1.1tr5").
+
+You may reach me using the following addresses:
+     Tilmann Reh, In der Grossenbach 46, D-57072 Siegen
+     Phone +49 271 312599, Fax +49 271 317359
+     Internet: tilmann.reh@hrz.uni-siegen.dbp.de
+Before July 1993, the above ZIP code must be replaced by "W-5900". The 
+safest  way  to  reach me is regular mail -  fax  number  or  internet 
+address may change.
+
+
+This  document  describes major features of the  new  system  software 
+release, especially implementing a particular harddisk drive.
+
+P.S.:  Some users sometimes had problems to format diskettes with  the 
+new system (although the Format Manager and it's BIOS interface wasn't 
+changed).  Since I still don't know the cause of those  problems,  and 
+didn't manage to reproduce them yet, I ask you to keep your eyes  open 
+and inform me as soon as you experience some difficulties.
+
+
+
+                         The modular approach
+                         --------------------
+
+The  new  system  introduces the concept of a  really  modular  driver 
+structure  and all options being selectable by  conditional  assembly. 
+The  modular driver structure applies especially to the disk  drivers, 
+where  the only public label of each driver are the extended DPH's  of 
+the  logical  drives.  The system kernel  addresses  the  driver  only 
+through  the use of the drive table and these XDPH's, so  the  drivers 
+should  be  freely exchangable, and it should be easy  to  create  new 
+driver modules covering different hardware.
+Since  all options are choosen by conditional assembly,  new  hardware 
+support  routines  might simply be added to the original  source  code 
+as  another option (please inform me about such expansions, so  I  can 
+integrate them into further system software releases). For example,  a 
+harddisk   driver  for  OMTI  controllers  (the  old   XT-type   8-bit 
+controllers) will surely become another option in the HARD.280  module 
+(the option file is already prepared for this).
+
+The modular disk drivers also are already prepared for being used with 
+the  next release of the boot loader program. For this  purpose,  they 
+contain code which is needed only with the boot loader, code which  is 
+needed  only with the system BIOS, and code which is needed for  both. 
+This, too, is controlled via conditional assembly. There is an  option 
+named LOADER, which is set true during assembly of the driver  modules 
+for the loader program, and false during assembly of the system  BIOS. 
+Since the option file is included in every source code module, we must 
+have  different option files for the loader and the system  BIOS.  The 
+appropriate  file (SYSTEM.LIB resp. LOADER.LIB) is then copied to  the 
+file OPTIONS.LIB (which is included in every source module) every time 
+the system BIOS or the loader program are assembled.
+
+This is to give some information about the concept, and the meaning of 
+the  new option files. Don't mess around with the LOADER flag! I  have 
+not  yet started programming the new loader program, so it  will  last 
+some  time  before it makes sense to ask me about.  However,  the  old 
+loader  version  (1.02) will boot the new system from both  EPROM  and 
+disk  without  any problems (even if the new system does not  use  all 
+information the loader is offering).
+
+                        Harddisk installation
+                        ---------------------
+
+One  of the great features of the system release 1.1 is  the  harddisk 
+driver which allows for easy installation of IDE harddisks  (connected 
+via my IDE interface board) by the use of macros. One needs to  change 
+only  few  equations to get the new system running with  a  particular 
+harddisk.
+
+Every  harddisk is described by it's operating parameters,  which  are 
+the number of cylinders, heads and sectors. The so-called native  mode 
+of  IDE drives uses the physical parameters as  operating  parameters. 
+Some  drives  support pseudo-native modes which have  some  parameters 
+modified  by powers of two, for example twice the number of heads  and 
+half  the  cylinder count. Many drives allow for free setting  of  the 
+operating parameters and calculate the physical values internally,  as 
+long  as  the  emulation fits into the total number  of  sectors  (the 
+drive's capacity). These emulation modes (including pseudo-native) are 
+for  the  "compatibility"  of the IBM  "clowns",  where  the  original 
+harddisk controller WD 1010 could control only 1024 cylinders. So with 
+modern  harddisks which have far more cylinders, these are  mapped  to 
+logical drives with fewer cylinders.
+
+Since I don't know for sure if modern IDE drives also mask the  higher 
+bits of the cylinder register, you should also use an emulation  which 
+has less than 1024 cylinders (logical). Pseudo-native modes are to  be 
+preferred, since they probably are slightly faster. So, the first step 
+is to fix the operating parameters of the drive.
+
+The  next thing to do is the specification of the logical drives,  the 
+partitions.  One physical harddisk drive may be splitted into  several 
+logical  drives, so there are more separated areas to store files  in. 
+Remember,  with  CP/M-3 you have only 16 user areas for  each  logical 
+drive. So if you want to put all your files covering one theme into an 
+own  area, you will need many partitions if you have many  themes.  To 
+give  you an idea of the size of a partition: having files  of  normal 
+size  (text files, programs, libraries, everything mixed), with  about 
+100 files per drive/user area, this means about 1600 files per  drive, 
+representing  about 10 to 15 megabytes. If you are planning  to  store 
+large  files on one partition only, you might as well choose a  larger 
+partition  for this purpose. If you want to have fewer files in a  d/u 
+area, choose more smaller partitions (if possible).
+
+The system software release 1.1 supports 9 harddisk partitions without 
+changes.  By removing the optional semiconductor pseudo-drives  and/or 
+unused  disk drives, you might get some more. Partition sizes  can  be 
+defined by the number of cylinders.
+
+After  you have defined how many partitions of which size you want  to 
+install,  you must define the block size of each  partition.  Remember 
+that you can allocate a maximum of 16 blocks to the directory. This is 
+a very important limit! With 4k blocks, there are max. 2048  directory 
+entries, enough for about 10-15 MB of mixed files when datestamping is 
+used (highly recommended!). With greater blocks, you get more room for 
+the  directory, while needing less - this is great! However,  blocking 
+losses  rise as they are half the blocksize statistically (already  4k 
+per  file when using 8k blocks). So you should choose the  block  size 
+(and  the partition size) depending on the type of files you  want  to 
+store in each partition. Then, the number of directory entries must be 
+defined accordingly.
+
+The  last  thing  to do is caused by the  16-bit  arithmetics  of  the 
+assembler. I use an equation within a macro to calculate the number of 
+blocks  in each partition. For partitions greater than or equal to  32 
+MB,  an intermediate value will overflow and result in a  wrong  block 
+count. So for every partition which is concerned, you have to do  this 
+calculation  manually  and  enter the block count  directly  into  the 
+source code.
+
+These  are  the four things to do, with some information where  to  do 
+them:
+
+1. Fix the drive's operating parameters (cylinders, heads, sectors).
+     The  operating parameters are defined in three equations  at  the 
+     beginning of the HARD.280 module.
+
+2. Define number and size of partitions.
+     The  number  of  partitions  is  contained  in  the  option  file 
+     SYSTEM.LIB  (!).  The  size of each  partition  is  defined  with 
+     equations at the beginning of HARD.280.
+
+3. Define the block size and directory capacity of each partition.
+     The block size of each partition is defined immediately following 
+     the partition size definition, at the beginning of HARD.280.  The 
+     block  size is defined as number of sectors per  group  (=block), 
+     where a sector is always 512 byte.
+     The  number  of directory entries and  the  according  allocation 
+     bytes must be defined directly within the DPB's, at the very  end 
+     of  HARD.280. Partitions which are equal in capacity, block  size 
+     and directory size, may share the same DPB. Change the number  of 
+     different  DPB's to your requirements by adding or  removing;  be 
+     sure to declare all needed DPB labels. Take care that if you have 
+     too  much  DPB's, the resident BIOS portion will  need  3  memory 
+     pages instead of two, reducing your TPA size by 256 byte.
+
+4. Check for 32-MB overflows and correct manually.
+     If there are partitions of 32 MB or greater, find the source code 
+     line where the block count of each partition is calculated  (near 
+     the  end  of HARD.280, within the IRPC macro). This  line  should 
+     read:
+          Blocks&i aset Part&i*Heads*Secs/SpG&i
+     Add  a new line !after! this definition which contains the  right 
+     value for the partition in question, for example:
+          BlocksK aset 5036
+     if your partition K is sized about 40 MB and uses 8k blocks. Take 
+     care  to use an integer division which simply cuts the  remainder 
+     (do not round!). 
+
+One thing which I didn't mention yet: there's a signon message in  the 
+harddisk  driver which is displayed after  successful  initialization. 
+This  message  usually contains the harddisk's capacity and  the  used 
+logical  drives (the letter from H: to anywhere). This message  should 
+of course be adapted to the used harddisk and partitioning data.
+
+After having created the new system file using the SYS make-file,  the 
+GENCPM utility should be run manually in any case, explicitly checking 
+the buffer sizes and definitions. Boot the new system from floppy disk 
+first,  before burning it into EPROM's (BTW, the GENEPR utility  still 
+works with the new system).
+
+The  new  system  should be able to address  the  harddisk  partitions 
+perfectly right from the start. If you experience any problems, please 
+inform me about them as detailed as possible.
+
+After  having booted the new system first, the directory structure  of 
+all partitions must be created. For this, fill the complete  directory 
+area with E5 bytes (for example using DU), except for the 60h position 
+in  every  record which should be 21's (the latter can  also  be  done 
+using the CP/M-3 command INITDIR). After that, use the SET command  to 
+set  the  partition's directory label and activate the  date  stamping 
+(create & update recommended).
+
+                                ZPM 3
+                                -----
+
+There is a replacement for the CP/M-3 BDOS, written completely in  Z80 
+code.  Thus,  it  is much more efficient and  also  offers  additional 
+functions  compared  to the original CP/M-3.  Unfortunately,  it  also 
+seems to contain some bugs and some mis-specifications (like  register 
+usage  restrictions for the BIOS), at least in the actual release  09. 
+Although I took care of the details I knew about ZPM3 when programming 
+the  new BIOS, it still does not run error-free. Since the contact  to 
+the  (australian)  author of ZPM3, Simeon Cran, has broken,  we  don't 
+seem  to  have  the support needed to get it running.  If  we  someday 
+receive  a  release of ZPM3 without those bugs, this BIOS  should  run 
+with it without being changed.
+
+
+- End of this document -
+

@@ -1,0 +1,97 @@
+History file for the Format-Manager of CPU280
+---------------------------------------------
+(First Release V0.1 was 17 November 90)
+
+Messages of version 0.1 through 1.01 only in german language. First
+english software manual describes version 1.01, thus this should not
+arise any problems. TR 150692
+
+V0.1 vom 30.11.90:
+- .IN3 BugFix: Gap-Berechnung 5.25" HD korrigiert.
+- .IN5 BugFix: HD-Bit im Parameterblock korrigiert.
+- .IN6 BugFix: doppeltes Invertieren des Sektorpuffers beim Directory-
+  Initialisieren entfernt. ]berfl}ssige Seek-Routine entfernt.
+
+V1.0 vom 13.01.91:
+- BugFix: Umschaltung des BIOS-Laufwerks korrigiert.
+  Jetzt Aufruf von beliebigem Laufwerk m|glich (Daten werden nicht mehr
+  f{lschlich von A: gelesen). Au~erdem weniger Disk-Resets beim Formatieren.
+- BugFix: Bei Formaten ohne Sektor 1 kann kein Parameterblock geschrieben
+  werden, daher wird dies auch nicht mehr erfragt und versucht.
+- Erweiterung: Explizite Angabe der Kopfnummer f}r jede Diskettenseite.
+  Dadurch Parameterblock-Definition jetzt: Pos. 16h/17h Kopfnummer 0/1.
+  Die meisten Formatdefinitionen d}rften g}ltig bleiben (K|pfe 0/1), da
+  die Defaults der alten Spur}bersetzung genau diese Werte hatten.
+- [nderung: Spur}bersetzung }ber numerierte Verfahren.
+  Verfahren: 1 = v0..vmax,rmax..r0     (v=vorne, h=hinten)
+             2 = vmax/2..vmax,vmax/2-1..v0,rmax/2..rmax,rmax/2-1..r0
+             3 = v0,v1,r0,r1,v2,r2,v3,r3,v4,r4,...,vmax,rmax
+             4 = v0,r0,v1,r1,...,vmax,rmax  (Halbspur mit fortl. Sektoren)
+  Im Parameterblock Position 18h. Bisheriger Default war 0, also sind keine
+  Komplikationen zu erwarten. Verfahren 4 dient zur Realisierung von
+  Halbspur}berl{ufen mit fortlaufender Sektornumerierung (z.B. Kaypro).
+  Felder 19h..1Dh sind frei und werden bei Neuanlage mit 0 gef}llt.
+- [nderung: Bei 'Diskette untersuchen' wird nun auch die physikalische
+  Sektorfolge (unsortiert) angezeigt.
+- [nderung: Beim Formatieren und Parameterblock-Schreiben werden nun auch
+  5.25"-Formate auf 3.5"-Laufwerken zugelassen (und umgekehrt), da diese
+  Laufwerkstypen 100% kompatibel sind. Allerdings wird ein Hinweis darauf
+  ausgegeben. HD-Formate sind unver{ndert inkompatibel.
+- [nderung: Nach dem Editieren eines Formates wird die Datei sofort
+  aktualisiert (nicht erst beim Verlassen des Managers).
+- Erweiterung: Funktion 'Fremdformat bearbeiten' auch }ber Kommandozeile.
+  Erster Parameter ist Format-Nummer, zweiter Parameter Laufwerksbuchstabe.
+- Erweiterung: Beim Formatieren wird jetzt verifiziert (neue USERF-Funktion
+  13 'Read Track Diagnostic'). Bei Fehlern wird max. 3mal wiederholt, sonst
+  wird am Ende des Formatierens die Fehlermeldung 'nicht formatierbar'
+  ausgegeben. Dies ben|tigt nat}rlich die BIOS-Version 1.02 (Code 101h).
+
+V1.01 vom 30.05.91:
+- BugFix: Spur}bersetzung Nr. 4 (Kaypro-Formate) wird nun auch beim
+  Formatieren ber}cksichtigt (h|here Sektornummern auf Seite 1).
+- Erweiterung: Die Ausgabe der Formatliste erfolgt auf dem Bildschirm nun
+  generell alphabetisch sortiert (spaltenweise), auf dem Drucker wahlweise
+  sortiert oder unsortiert.
+- [nderung: Beim Verlassen des Format-Managers werden nicht mehr alle,
+  sondern nur noch die benutzten Laufwerke zur}ckgesetzt ('ausgeloggt').
+- [nderung: Zum Verlassen des Format-Managers ist im Hauptmenu Ziffer '0'
+  einzugeben. Ziffer '9' wird vorl{ufig weiterhin akzeptiert, aber nicht
+  mehr im Menu aufgef}hrt.
+- Erweiterung: Nach dem Formatieren einer Diskette besteht die M|glichkeit,
+  weitere Disketten identisch zu formatieren (Directory Label wird erneut
+  abgefragt).
+- [nderung: Nach Formatierfehlern wird die Directory nicht mehr initialisiert
+  bzw. das Label gesetzt und Zeiteintr{ge aktiviert.
+- Erweiterung: Als weitere Kommandozeilenoption darf als erster Parameter
+  ein Fragezeichen eingegeben werden (Beispiel: FORMAT ? C). Die Diskette
+  im angegebenen Laufwerk wird dann untersucht (wie bei 'Diskette unter-
+  suchen', aber ohne M|glichkeit zum Editieren).
+- BugFix: Vor 'Diskette untersuchen' wird das Laufwerk 'kalt' eingeloggt.
+  Sonst wurden manchmal interne Formate nicht als solche erkannt.
+
+
+V1.02 of 15 June 92:
+- Added multi-langual support by moving all messages into a separate file
+  which may be included by choice.
+- Added support of cp/m+ drive search chain when searching the data file.
+  Since turbo pascal is unable to access untyped files which reside in
+  user 0 with system attribute set while another user is active, one
+  should only start the format manager when the data file is in the
+  active user area.
+
+V1.02 of 03 October 92:
+- .IN2 BugFix: Pressing ESC after a screenful of format names (function 1)
+  now really exits this function. Also the 'continue' message is not
+  printed if the last format is already listed.
+- Changed format numbers in function 1 and 2 to be printed with three
+  digits (not two). This helps with large format data files.
+
+V1.03 of 01 July 2007:
+- Added support for command line parameters "<nr> ?" to show the detailed
+  format data for the given format number (command line version of the
+  interactive "Show" command).
+
+V1.04 of 06 July 2008:
+- Added output of format list to an ASCII text file (formatted identical
+  to printed list).
+

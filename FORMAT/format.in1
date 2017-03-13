@@ -1,0 +1,211 @@
+(********************************************************************)
+(*  FORMAT.IN1 : Hardware-Interface und Basisfunktionen             *)
+(********************************************************************)
+
+(* 140692 Tilmann Reh *)
+
+(********************************************************************)
+(*                      Hardware-Interface                          *)
+(********************************************************************)
+
+function USER_F(func,wert:integer):integer;
+begin
+  inline($01/$57/$00/ (*  ld  bc,3*(30-1) ; USERF: BIOS-Funktion 30 *)
+        $2A/$01/$00/  (*  ld  hl,(1)                                *)
+        $09/          (*  add hl,bc       ; Zeiger auf USERF-Einspr.*)
+        $ED/$5B/FUNC/ (*  ld  de,(func)                             *)
+        $ED/$4B/WERT/ (*  ld  bc,(wert)   ; BC und DE laden         *)
+        $E9);         (*  jp  (hl)        ; USERF ausfuehren,       *)
+  end;                (*                  ; RET mit Ergebnis in HL  *)
+
+function DOSBIOS(f,pa,b,d,h:integer):integer;
+var regs : record
+             func,a   : byte;
+             bc,de,hl : integer;
+             end;
+begin
+  with regs do begin func:=f; a:=pa; bc:=b; de:=d; hl:=h; end;
+  case f of
+    2,3,7,13,14,15,17,18,19,24 : DOSBIOS:=BDOS(50,addr(regs));
+    9,16,20,22,25              : DOSBIOS:=BDOSHL(50,addr(regs));
+    else                         begin BDOS(50,addr(regs)); DOSBIOS:=0; end;
+    end;
+  end;
+
+(*---------- FUNKTIONEN DES USERF-BIOS-EINSPRUNGES ----------*)
+
+function GetBiosVersion:integer;
+begin
+  GetBiosVersion:=USER_F(0,0);
+  end;
+(*
+procedure SetMotorOffDelay(dauer:integer);
+begin
+  xi:=USER_F(1,dauer);
+  end;
+*)
+function GetSelectedDrive:integer;
+begin
+  GetSelectedDrive:=USER_F(2,0);
+  end;
+
+function GetDriveType:integer;
+begin
+  GetDriveType:=USER_F(3,0);
+  end;
+
+procedure SeekDirect(track:integer);
+begin
+  xi:=USER_F(4,track);
+  end;
+
+function CheckDensity(head:integer):integer;
+begin
+  CheckDensity:=USER_F(5,head);
+  end;
+
+function ReadNextID(head:integer):boolean; (* immer mit ResultOK ! *)
+begin
+  if USER_F(6,head)=0 then ReadNextID:=USER_F(12,0)=0  (* TRUE wenn OK *)
+  else ReadNextID:=false;
+  end;
+
+function ReadPhysicalSector(trk,hd,rec,siz:integer; var buf):boolean;
+var chrn : chrntyp absolute buf;
+begin
+  with chrn do begin c:=trk; h:=hd; r:=rec; n:=siz; end;
+  ReadPhysicalSector:=USER_F(7,addr(buf))=0;   (* TRUE wenn OK *)
+  end;
+
+function WritePhysicalSector:boolean;
+begin
+  WritePhysicalSector:=USER_F(8,0)=0;   (* TRUE wenn OK *)
+  end;
+
+function FormatTrack(Cmd:FormCmdTyp):boolean;
+begin
+  FormatTrack:=USER_F(9,addr(Cmd))=0;   (* TRUE wenn OK *)
+  end;
+
+procedure SetBiosParameterblocks(var parmblk);
+begin
+  xi:=USER_F(10,addr(parmblk));
+  end;
+
+function GetResultAddress:integer;
+begin
+  GetResultAddress:=USER_F(11,0);
+  end;
+
+function ResultOK:boolean;
+begin
+  ResultOK:=USER_F(12,0)=0;  (* TRUE wenn OK *)
+  end;
+
+function ReadTrackDiagnostic(c:CHRNtyp; g:integer; h,e:byte):boolean;
+var EOT    : byte;      (* diese Reihenfolge  *)
+    Head   : byte;      (* auf keinen Fall    *)
+    GesLen : integer;   (* aendern !!!        *)
+    chrn   : CHRNtyp;   (*                    *)
+begin
+  chrn:=c; GesLen:=g; Head:=h; EOT:=e;
+  ReadTrackDiagnostic:=USER_F(13,addr(chrn))=0;  (* TRUE wenn OK *)
+  end;
+
+(********************************************************************)
+(*                        Basisfunktionen                           *)
+(********************************************************************)
+
+var SavedDrive : integer;
+
+procedure SaveBiosDrive;
+begin
+  SavedDrive:=GetSelectedDrive;
+  end;
+
+procedure RestoreBiosDrive;
+begin
+  xi:=DOSBIOS(9,0,SavedDrive,1,0);
+  end;
+
+procedure WaitTaste;
+begin
+  write(_WaitTaste);
+  read(kbd,xc); writeln;
+  end;
+
+type ErrorTyp = (DrvErr,NumErr,NotRdy,SizErr,DenErr,SidErr,
+                 TrkErr,FrmErr,WrErr,SecErr,EmpErr,RdErr);
+
+procedure Error(code:ErrorTyp);
+begin
+  write(_Error);
+  case code of
+    DrvErr : write(_DrvErr);
+    NumErr : write(_NumErr);
+    NotRdy : write(_NotRdy);
+    SizErr : write(_SizErr);
+    DenErr : write(_DenErr);
+    SidErr : write(_SidErr);
+    TrkErr : write(_TrkErr);
+    FrmErr : write(_FrmErr);
+    WrErr  : write(_WrErr);
+    SecErr : write(_SecErr);
+    EmpErr : write(_EmpErr);
+    RdErr  : write(_RdErr);
+    end;
+  WaitTaste;
+  end;
+
+procedure StringToArray(var str; var arr:CharArray20);
+var s : WorkString absolute str;
+begin
+  fillchar(arr,sizeof(arr),' ');
+  move(s[1],arr,length(s));
+  end;
+
+function GGT(x1,x2:integer):integer;
+var x:integer;
+begin
+  repeat x:=x1 mod x2; x1:=x2; x2:=x; until x=0;
+  GGT:=x1;
+  end;
+
+procedure InputFormatNumber;
+begin
+  clrscr; gotoxy(1,4);
+  AktNum:=maxint;         (* vorbelegen damit Eingabe zwingend *)
+  repeat
+    write(_FormNumber); readln(AktNum);
+    if AktNum>filesize(Datei) then Error(NumErr);
+  until AktNum<=filesize(Datei);
+  seek(Datei,pred(AktNum));
+  blockread(Datei,AktForm,1);
+  writeln(_FormName,AktForm.Name);
+  end;
+
+const DriveSize : array[0..7] of byte = (0,0,3,3,8,5,5,5);
+
+procedure InputDrive;
+begin
+  write(_DriveQ);
+  repeat
+    read(kbd,AktDriveChar); AktDriveChar:=upcase(AktDriveChar)
+  until AktDriveChar in ['A'..'D'];
+  writeln(AktDriveChar);
+  AktDrive:=ord(AktDriveChar)-$41;
+  SaveBiosDrive;
+  xi:=DOSBIOS(9,0,AktDrive,1,0);    (* BIOS Select Disk *)
+  AktType:=GetDriveType;
+  AktSize:=DriveSize[AktType and 7];
+  ResetVector:=ResetVector or (1 shl AktDrive);
+  end;
+
+function InputBoolean(text:WorkString):boolean;
+begin
+  write(text,' ? ');
+  repeat read(kbd,xc); xc:=upcase(xc) until xc in ['J','N','Y'];
+  writeln(xc);
+  InputBoolean:=xc<>'N';
+  end;
+

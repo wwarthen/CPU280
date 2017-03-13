@@ -1,0 +1,139 @@
+(********************************************************************)
+(*  FORMAT.IN4 : Diskette untersuchen (GetForm)                     *)
+(********************************************************************)
+
+(* 150692 Tilmann Reh *)
+
+var FPB : FPBtyp absolute SecBuf;
+    Den : byte;
+
+(* Parameterblock gefunden: Daten anzeigen *)
+
+  procedure GetIntForm(WaitFlag:boolean);
+  begin
+    with FPB do begin
+      write(_IntForm,name,^M^J^M^J);
+      if InputBoolean(_MoreDataQ) then begin
+        write(^M^J,ptrk,_Tracks,', ',psec,_SecEach,zpot[DPB.psh+7],_InfoByte);
+        case bf1 and $C0 of
+          $00 : write('FM');
+          $40 : if Den=1 then write('FM/MFM') else write('MFM');
+          $C0 : write('HD');
+          end; write(', ');
+        case bf1 and $03 of
+          $00 : write(_InfoSS);
+          $01 : write(_InfoDSSec);
+          $02 : write(_InfoDSTrk);
+          $03 : write(_InfoDSHalf);
+          end;
+        write(_HeadNumber);
+        if bf1 and $03 =0 then writeln(hd[0])
+          else writeln(_HeadMult,hd[0],'/',hd[1]);
+        if bf1 and $08 >0 then write(_Invert);
+        if bf1 and $04 >0 then write(_Multi);
+        if trktrans>0 then writeln(_TrkTrans,trktrans);
+        it2:=Sec1; it3:=Sec33;
+        DisplaySectorList(SkewTable,psec,bf1 and 3); writeln;
+        write(_BlockSize,zpot[DPB.bsh-3],'k'^M^J);
+        write(succ(DPB.drm),_DirEntries);
+        write(DPB.off,_Reserved);
+        write(_InfoCap,succ(DPB.dsm) shl (DPB.bsh-3),'k'^M^J^M^J);
+        if WaitFlag then WaitTaste;
+        end;
+      end;
+    end;
+
+(* Kein Parameterblock: Diskette untersuchen *)
+
+  procedure GetExtForm(EditFlag:boolean);
+  var Den0,Spur,sec1 : byte;
+      OldResult      : chrntyp;
+      Secs           : array[1..32] of byte;
+      Continue       : boolean;
+  begin
+    writeln;
+    fillchar(AktForm,sizeof(AktForm),0);
+    with AktForm do begin
+      Name:='Detected_Format     '; DiskSize:=AktSize;
+      Den0:=Den; Spur:=0;
+      while (Den<0) and (Spur<10) do begin
+        Spur:=succ(succ(Spur));
+        SeekDirect(Spur);
+        Den:=CheckDensity(0);
+        end;
+      if Den<0 then begin Error(EmpErr); WaitTaste; exit; end;
+      if Den0<0 then Den0:=Den;
+      if Spur=0 then begin
+        Spur:=2; SeekDirect(Spur); Den:=CheckDensity(0); end;
+      Density:=Den; if (Den0=1) and (Den=2) then Density:=3;
+      Modus:=0; Invers:=0; Multi:=0;
+      if ReadNextID(0) then begin
+        xi:=succ(byte(AktType and $08 =0));
+        case (xi*Spur div Result^.C) of
+          1 : if AktSize=8 then Spuren:=77 else Spuren:=80;
+          2 : Spuren:=40;
+          else writeln(_NoTrkDet);
+          end;
+        Head[0]:=Result^.H;
+        if AktType and $10 >0 then begin
+          OldResult:=Result^;
+          if ReadNextID(1) then
+          if (OldResult.C=Result^.C) then
+          if (OldResult.N=Result^.N) then begin
+            Modus:=1; Head[1]:=Result^.H; end;
+          end;
+        end;
+
+      Continue:=ReadNextID(0); Secs[1]:=Result^.R;
+      xi:=1; while ReadNextID(0) and Continue do begin
+        xi:=succ(xi); Secs[xi]:=Result^.R;
+        Continue:=Result^.R<>Secs[1];
+        end;
+      Sec_Shift:=Result^.N; Sec_Zahl:=pred(xi);
+      sec1:=1; for xi:=1 to Sec_Zahl do if Secs[xi]<Secs[sec1] then sec1:=xi;
+      Phys_Skew:=Secs[succ(sec1)]-Secs[sec1];
+
+      DisplayPhysicalFormat(AktForm,false);
+      write(_SecsSide,'0:');
+      for xi:=1 to Sec_Zahl do write(' ',Secs[xi]);
+      if Modus>0 then begin
+        Continue:=ReadNextID(1); Secs[1]:=Result^.R;
+        xi:=1; while ReadNextID(1) and Continue do begin
+          xi:=succ(xi); Secs[xi]:=Result^.R;
+          Continue:=Result^.R<>Secs[1];
+          end;
+        write(^m^j,_SecsSide,'1:');
+        for xi:=1 to Sec_Zahl do write(' ',Secs[xi]);
+        end;
+
+      if EditFlag then
+      if InputBoolean(_EditQ) then begin
+        BlockSize:=4; Directory:=2; Offset:=0; Skew:=1;
+        if Density=3 then Offset:=1;   (* ECMA kann nicht 0 Offset haben *)
+        RestoreBiosDrive;
+        xi:=filesize(Datei);
+        seek(Datei,xi);
+        blockwrite(Datei,AktForm,1);
+        edit(xi);
+        end;
+      end;
+    end;
+
+(*----- GETFORM -----*)
+
+procedure GetForm;
+begin
+  clrscr; gotoxy(1,4);
+  InputDrive;
+  xi:=DOSBIOS(9,0,AktDrive,0,0);  (* Select Disk Cold *)
+  if AktSize=0 then Error(NotRdy) else begin
+    xi:=DOSBIOS(8,0,0,0,0);       (* HOME *)
+    Den:=CheckDensity(0);
+    if Den<0 then error(notrdy) else
+    if ReadPhysicalSector(0,Result^.H,1,Result^.N,SecBuf)
+      and (FPB.it0=$21) and (FPB.it1=$21) and (FPB.it2=$21) and (FPB.it3=$21)
+      and (FPB.id1=$AE) and (FPB.id2=$BF)
+      then GetIntForm(true) else GetExtForm(true);
+    end;
+  end;
+

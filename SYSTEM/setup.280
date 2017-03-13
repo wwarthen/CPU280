@@ -1,0 +1,719 @@
+	title	'CPU280 System Configuration Setup'
+	.xlist
+	maclib	CPU280
+	maclib	LOADER
+	maclib	LDRIO
+	.list
+	.z280
+
+; 950131 Tilmann Reh
+
+; Allgemeine Eingabe von Parametern innerhalb eines Bereiches.
+; Bereichsanfang in D, Bereichsl{nge in E. Bei eingegebenen
+; Buchstaben wird in Gro~buchstaben konvertiert.
+; Ausgang mit eingegebenem Wert in A (normiert, ab 0).
+
+Input:	call	ConIn		; Eingabe holen
+	cp	'a'
+	jr	c,Input1	; kleiner als 'a': direkt verwenden
+	cp	'z'+1
+	jr	nc,Input1	; gr|~er als 'z': ebenfalls
+	and	5Fh		; sonst CAPS
+Input1:	sub	d
+	jr	c,Input		; Wert zu klein: weiter warten
+	cp	e
+	jr	nc,Input	; Wert zu gro~: weiter warten
+	push	af
+	add	a,d		; wieder zur}ck zum Eingabewert
+	call	COA		; Echo an Konsole
+	pop	af
+	ret			; Ende mit Zeichen-Wert in A
+
+; Allgemeine Eingabe von Kennziffern:
+; erster ungueltiger Wert in E, Ausgang mit Wert in A (ab 0).
+
+select:	call	conin
+	ld	c,a
+	sub	'0'
+	jr	c,select
+	cp	e
+	jr	nc,select	; Erlaubte Eingaben 0 .. (e-1)
+	push	af
+	call	co		; Echo
+	pop	af
+	ret			; Return mit normalisiertem Wert in A
+
+; Allgemeiner Tabellen-Verteiler f}r Menus:
+
+menu:	call	select		; Eingabe 0 .. (e-1)
+	add	a,a
+	add	hl,a
+	ldw	hl,(hl)		; }ber Tabelle verteilen
+	jp	(hl)
+
+;***********************************************************************
+;**       Hauptmenu: Auswahl Laufwerke/Schnittstellen/Sonstiges       **
+;***********************************************************************
+
+hmenu::	ld	hl,h_msg
+	call	pmsg		; Auswahl-Menu
+	ld	hl,h_tbl
+	ld	e,4
+	jp	menu		; Eingabe auswerten
+
+h_tbl:	defw	exit,dmenu,smenu,xmenu
+
+exit:	ret			; zur}ck zum Bootlader
+
+;***********************************************************************
+;**                  Menu f}r Diskettenlaufwerke                      **
+;***********************************************************************
+
+dmenu:	ld	hl,def
+	call	pmsg
+	ld	hl,drive0
+	ld	b,4
+dm1:	call	ddisp
+	inc	hl
+	djnz	dm1		; aktuelle Einstellungen anzeigen
+	ld	hl,d_msg
+	call	pmsg		; Menu ausgeben
+	ld	hl,d_tbl
+	ld	e,5
+	jp	menu		; Eingabe auswerten
+
+d_tbl:	defw	hmenu,setdrv,setdrv,setdrv,setdrv
+
+; aktuelle Laufwerkstypen anzeigen:
+
+ddisp:	ld	c,tab
+	call	co		; einr}cken!
+	ld	a,'D'+1
+	sub	b
+	call	coa		; Laufwerksbezeichner
+	ld	c,':'
+	call	co
+	ld	a,(hl)		; Flag
+	push	hl
+	and	7		; untere 3 Bit : Typ
+	add	a,a
+	exts	a
+	ldw	hl,(hl++t_tbl)
+	jr	z,dd2		; kein Laufwerk: nur Typ anzeigen!
+	cp	2*4
+	jr	z,dd1		; Typ 4: 8-Zoll-Laufwerke keine Spurzahl!
+	call	pmsg		; Typ ausgeben
+	ldw	hl,(sp++0)
+	bit	3,(hl)		; Spurenzahl-Bit
+	ld	hl,trk0
+	jr	z,dd1
+	ld	hl,trk1
+dd1:	call	pmsg		; Spuranzahl ausgeben
+	ldw	hl,(sp++0)
+	bit	4,(hl)		; Seitenzahl-Bit
+	ld	hl,sid0
+	jr	z,dd2
+	ld	hl,sid1
+dd2:	call	pmsg		; Seitenzahl ausgeben
+	pop	hl
+	ret
+
+t_tbl:	defw	typ0,typ0,typ2,typ3,typ4,typ5,typ6,typ7
+
+; Laufwerksparameter eingeben:
+
+setdrv:	rrca			; A = Eingabecode (Laufwerk)
+	ld	hl,drive0-1	; (Eingabe 1..4)
+	add	hl,a
+	push	hl		; Zeiger auf dessen Parameter
+	ld	hl,t_msg1
+	call	pmsg		; Auswahlmenu Laufwerkstypen
+	ld	e,7
+	call	select		; Eingabe
+	cp	1
+	ccf			; CY=1 ab Wert 1
+	adc	a,0		; --> Werte 0,2..7
+	ld	d,a		; Typ nach D
+	jr	z,setd3		; kein Laufwerk: komplett Null
+	cp	4
+	jr	z,setd1		; 8": Spurdichte fest	
+	ld	hl,t_msg2
+	call	pmsg		; Auswahlmenu Spuranzahl
+	ld	e,2
+	call	select		; Eingabe
+	or	a
+	jr	z,setd2		; 40 Spuren
+setd1:	set	3,d		; 80 Spuren
+setd2:	ld	hl,t_msg3
+	call	pmsg		; Auswahlmenu Seitenzahl
+	ld	e,2
+	call	select		; Eingabe
+	or	a
+	jr	z,setd3		; 1 Seite
+	set	4,d		; 2 Seiten
+setd3:	pop	hl
+	ld	(hl),d		; Laufwerksbezeichner speichern
+	jp	dmenu		; wieder ins Laufwerk-Menu	
+
+;***********************************************************************
+;**                   Menu f}r Schnittstellen                         **
+;***********************************************************************
+
+smenu:	ld	hl,def
+	call	pmsg
+	ld	b,0
+	call	sdisp1		; Einstellung CRT1 anzeigen
+	ld	b,1
+	call	sdisp1		; Einstellung CRT2 anzeigen
+	call	sdisp2		; aktuelle Zuordnungen anzeigen
+
+	ld	c,'0'
+	ld	hl,CTbl		; Zeiger und Nummer auf 1. Schnittstelle
+CDevLp:	push	bc
+	call	ConOut		; Schnittstellen-Nummer ausgeben
+	ld	c,'='
+	call	ConOut		; '='
+	ld	b,6		; Device Names sind 6 Zeichen lang
+CDevL1:	ld	c,(hl)
+	call	ConOut		; Device Name ausgeben
+	inc	hl
+	djnz	CDevL1
+	inc	hl
+	inc	hl		; Device-Typ und Baudrate ignorieren
+	ld	a,(hl)
+	or	a
+	jr	z,SMenu1	; Ende der Device Tabelle: weiter mit Menu
+	ld	c,' '
+	call	ConOut
+	call	ConOut		; zwei Spaces als Trennzeichen
+	pop	bc
+	inc	c		; n{chste Nummer
+	ld	a,c
+	and	3		; ganzes Vielfaches von vier?
+	jr	nz,CDevLp	; nein: einfach weiter ausgeben
+	push	bc
+	push	hl
+	ld	hl,NewLin
+	call	PMsg		; sonst neue Zeile anfangen
+	pop	hl
+	pop	bc
+	jr	CDevLp		; weiter bis Tabellenende gefunden
+
+SMenu1:	pop	bc		; (Stack-Korrektur)
+	ld	hl,s_msg
+	call	pmsg		; Menu ausgeben
+	ld	hl,s_tbl
+	ld	e,6
+	jp	menu		; Eingabe auswerten
+
+s_tbl:	defw	hmenu,seth,seth,setb,setb,setdev
+
+; CRT-Parameter anzeigen (Hardware-Einstellungen und Baudrate):
+
+sdisp1:	ld	hl,crt1m
+	bit	0,b
+	jr	z,sd1
+	ld	hl,crt2m
+sd1:	call	pmsg		; Meldung CRT1: oder CRT2:
+	ld	a,b
+	add	a,a		; Device Nummer *2 in A (0..2)
+	ld	hl,crt1h
+	add	hl,a		; Zeiger auf Hardware-Flags
+	ld	c,(hl)
+	xor	a
+	rl	c
+	rra			; Bit 7 --> A7
+	rl	c
+	rla			; Bit 6 --> A0, A7 -> CY
+	rla			; Bit 6 in A1, Bit 7 in A0
+	add	a,'5'		; Anzahl Bits in A (ASCII)
+	call	coa		; ausgeben
+	ld	c,'+'
+	call	co
+	ld	c,'n'
+	bit	0,(hl)		; Parity Enable ?
+	jr	z,sd2
+	ld	c,'o'
+	bit	1,(hl)		; Parity Odd ?
+	jr	z,sd2
+	ld	c,'e'
+sd2:	call	co		; Parity ausgeben
+	ld	a,(hl)
+	and	0Ch		; Anzahl Stopbits (shl 2)
+	xor	04h		; --> 1.5 am Ende (wegen Textl{nge!)
+	ex	de,hl
+	ld	hl,crtsm
+	add	hl,a
+	call	pmsg		; Anzahl Stopbits ausgeben
+	ld	a,(de)
+	bit	5,a		; Auto Enables ?
+	ld	hl,handm
+	jr	nz,sd3
+	ld	hl,nhandm
+sd3:	call	pmsg		; Text ausgeben
+	ex	de,hl
+	inc	hl		; Zeiger auf Baudrate
+	ld	a,(hl)
+	multu	a,6		; 6 Zeichen pro Baudrate
+	lda	hl,(hl++baudt-6)
+	call	pmsg		; Zahlenwert Baudrate ausgeben
+	ld	hl,baudm
+	jp	pmsg		; 'Baud' ausgeben und Ende
+
+; Schnittstellenzuordnungen anzeigen (Device-Vektoren):
+; Nur Ziffern von 0..9 sind erlaubt!
+
+sdisp2:	ld	b,5
+	ld	ix,numtab
+	ld	hl,defci	; Zeiger auf Device-Nummern
+sd4:	ld	a,(hl)
+	add	a,'0'		; --> ASCII
+	ldw	de,(ix+0)
+	ld	(de),a		; Zeichen in String einsetzen
+	inc	ix
+	inc	ix
+	inc	hl
+	djnz	sd4		; alle 5 logischen Devices
+	ld	hl,defmsg
+	jp	pmsg		; Text ausgeben
+
+numtab:	defw	cinum,conum,ainum,aonum,lstnum
+
+; Eingabe von Hardware-Parametern:
+
+seth:	sub	2		; 2* Device 0..1 in A
+	ld	hl,crt1h
+	add	hl,a		; Zeiger auf Parameterbyte
+	push	hl		; retten
+	ld	hl,datbm
+	call	pmsg		; Frage nach Datenbits
+	ld	e,4
+	call	select		; eingeben
+	rrca
+	rrca
+	ld	d,a		; --> Bit 7,6 von D
+	ld	hl,parbm
+	call	pmsg		; Frage nach Paritybits
+	ld	e,4
+	call	select		; eingeben
+	or	d
+	ld	d,a		; --> Bit 1,0 von D
+	ld	hl,stopbm
+	call	pmsg		; Frage nach Stopbits
+	ld	e,3
+	call	select		; eingeben
+	inc	a		; --> Wert 1..3
+	rlca
+	rlca
+	or	d
+	ld	d,a		; --> Bit 3,2 von D
+	ld	hl,hndm
+	call	pmsg		; Frage nach Handshake
+	ld	e,2
+	call	select		; eingeben
+	rrca
+	rrca
+	rrca
+	or	d		; --> Bit 5
+	pop	hl		; Zeiger auf Parameterbyte
+	ld	(hl),a		; neuen Wert speichern
+	jp	smenu		; zur}ck zum Menu
+
+; Eingabe der Baudrate:
+
+setb:	sub	6		; 2* Device 0..1 in A
+	ld	hl,crt1bd
+	add	hl,a		; Zeiger auf Parameterbyte
+	push	hl		; retten
+	ld	hl,sbaudm
+	call	pmsg		; Frage Baudrate
+	ld	d,'A'
+	ld	e,15
+	call	Input		; eingeben
+	inc	a		; wird ab 1 gez{hlt!
+	pop	hl		; Zeiger auf Parameterbyte
+	ld	(hl),a		; neuen Wert speichern
+	jp	smenu
+
+; Eingabe der Schnittstellenzuordnungen:
+
+setdev:	ld	b,5
+	ld	ix,settab
+	ld	iy,defci
+sm1:	ldw	hl,(ix+0)
+	call	pmsg		; Frage ausgeben
+	ld	e,16		; Eingaben 0..15 erlaubt (offiziell 0..9)
+	call	select		; Wert eingeben
+	ld	(iy+0),a	; und speichern
+	inc	ix
+	inc	ix
+	inc	iy
+	djnz	sm1		; alle 5 Werte abfragen
+	jp	smenu		; zur}ck zum Menu
+
+settab:	defw	setci,setco,setai,setao,setlst
+
+;***********************************************************************
+;**                     Menu f}r Sonstiges                            **
+;***********************************************************************
+
+xmenu:	ld	hl,def
+	call	pmsg
+	ld	hl,sizmsg
+	call	pmsg		; Ausgabe Textbeginn
+	ld	hl,(memsiz-1)
+	ld	l,0
+	add	hl,hl		; Speicher in KB in HL (Blocks * 512)
+	call	pdec		; anzeigen
+	ld	hl,szm
+	ld	a,(sommer)
+	or	a
+	jr	nz,xm1		; Sommerzeit: szm ausgeben
+	ld	hl,nzm
+xm1:	call	pmsg		; Zeitangabe
+	ld	a,(botdrv)
+	add	a,'A'
+	ld	(drvm),a	; Buchstaben f}r Bootlaufwerk einsetzen
+	ld	b,4
+	ld	de,chain
+	ld	hl,chnm		; Zeiger auf Quelle und Ziel
+xm2:	ld	a,(de)
+	ld	c,'*'
+	or	a
+	jr	z,xm3		; Wert 0 : Default-Laufwerk
+	inc	a
+	jr	z,xm5		; Wert FF : Ende der Chain
+	add	a,'A'-2
+	ld	c,a		; alle anderen (1..16) : Laufwerk (A..P)
+xm3:	ld	(hl),c		; Zeichen einsetzen
+	inc	hl
+	inc	de
+	djnz	xm2		; alle vier Laufwerke angeben
+xm4:	ld	hl,zeitm
+	call	pmsg		; Text mit Bootdrive und Chain ausgeben
+	ld	hl,x_msg
+	call	pmsg		; Menu ausgeben
+	ld	hl,x_tbl
+	ld	e,5
+	jp	menu		; Eingabe auswerten
+
+xm5:	ld	(hl),' '
+	inc	hl
+	djnz	xm5		; restliche Stellen mit SPC f}llen
+	jr	xm4
+
+x_tbl:	defw	hmenu,setsiz,setsz,setbot,setchn
+
+; Speichergr|~e
+
+setsiz:	ld	hl,ssizm
+	call	pmsg		; Frage ausgeben
+	ld	e,4
+	call	select		; Eingabe 0..3
+	ld	hl,siztab
+	add	hl,a		; Zeiger auf 512k-Blockzahl
+	ld	a,(hl)
+	ld	(memsiz),a	; Wert speichern
+	jp	xmenu
+
+siztab:	defb	1,2,4,8
+
+; Sommerzeit
+
+setsz:	ld	hl,sszm
+	call	pmsg		; Frage ausgeben
+	ld	e,2
+	call	select		; Eingabe 0..1
+	ld	(sommer),a	; speichern
+	jp	xmenu
+
+; Bootlaufwerk
+
+setbot:	ld	hl,sbootm
+	call	pmsg		; Frage ausgeben
+	ld	d,'A'
+	ld	e,17
+	call	Input		; Eingabe A..P (Q=EPROM)
+	ld	(botdrv),a	; speichern
+	jp	xmenu
+
+; Drive Search Chain
+
+setchn:	ld	hl,schnm
+	call	pmsg		; Frage ausgeben
+	ld	b,4
+	ld	hl,chain
+sc1:	call	conin		; Zeichen holen
+	ld	c,a
+	ld	(hl),0
+	cp	'*'
+	jr	z,sc2		; Default-Laufwerk: Code 0
+	dec	(hl)
+	and	05Fh		; CAPS
+	cp	'X'
+	jr	z,sc3		; Ende: Code FF
+	cp	'A'
+	jr	c,sc1		; Zeichen kleiner 'A' : ung}ltig
+	cp	'P'+1
+	jr	nc,sc1		; gr|~er als 'P': auch ung}ltig
+	sub	'A'-1		; --> Codes 1..16
+	ld	(hl),a
+sc2:	call	co		; eingegebenes Zeichen ECHO
+	inc	hl		; n{chste Position
+	djnz	sc1		; maximal vier Stellen
+	jp	xmenu
+
+sc3:	ld	a,b
+	cp	4
+	jr	z,sc1		; an erster Stelle (B=4) Ende unzul{ssig!
+sc31:	ld	(hl),-1
+	inc	hl
+	djnz	sc31		; verbliebene Stellen mit -1 f}llen
+	jp	xmenu
+
+;***********************************************************************
+;**                          Menu-Texte                               **
+;***********************************************************************
+
+
+	if deutsch
+
+h_msg:	defm	cr,lf,lf,'1. Diskettenlaufwerke'
+	defm	cr,lf,'2. Schnittstellen'
+	defm	cr,lf,'3. Sonstiges'
+	defm	cr,lf,'0. Ende (Reboot)'
+	defz	cr,lf,'--> '
+
+d_msg:	defm	cr,lf,tab,'1. Laufwerk A:'
+	defm	cr,lf,tab,'2. Laufwerk B:'
+	defm	cr,lf,tab,'3. Laufwerk C:'
+	defm	cr,lf,tab,'4. Laufwerk D:'
+	defm	cr,lf,tab,'0. zur}ck'
+	defz	cr,lf,tab,'--> '
+
+s_msg:	defm	')',cr,lf
+	defm	cr,lf,tab,'1. Hardware-Parameter CRT1'
+	defm	cr,lf,tab,'2. Hardware-Parameter CRT2'
+	defm	cr,lf,tab,'3. Baudrate CRT1'
+	defm	cr,lf,tab,'4. Baudrate CRT2'
+	defm	cr,lf,tab,'5. Zuordnungen nach Reset'
+	defm	cr,lf,tab,'0. zur}ck'
+	defz	cr,lf,tab,'--> '
+
+x_msg:	defm	cr,lf,tab,'1. Speichergr|~e'
+	defm	cr,lf,tab,'2. Sommerzeit'
+	defm	cr,lf,tab,'3. Bootlaufwerk'
+	defm	cr,lf,tab,'4. Drive Search Chain'
+	defm	cr,lf,tab,'0. zur}ck'
+	defz	cr,lf,tab,'--> '
+
+def:	defz	cr,lf,lf,tab,'Aktuelle Einstellungen:',cr,lf
+
+typ0:	defz	' ---',cr,lf
+typ2:	defz	' 3.5" DD, '
+typ3:	defz	' 3.5" HD, '
+typ4:	defz	' 8", '
+typ5:	defz	' 5.25" HD 360, '
+typ6:	defz	' 5.25" DD, '
+typ7:	defz	' 5.25" HD 300/360, '
+trk0:	defz	'40 Spuren, '
+trk1:	defz	'80 Spuren, '
+sid0:	defz	'1 Seite',cr,lf
+sid1:	defz	'2 Seiten',cr,lf
+t_msg1:	defm	cr,lf,tab,tab,'0. Kein Laufwerk'
+	defm	cr,lf,tab,tab,'1. 3.5" DD'
+	defm	cr,lf,tab,tab,'2. 3.5" HD'
+	defm	cr,lf,tab,tab,'3. 8"'
+	defm	cr,lf,tab,tab,'4. 5.25" HD 360'
+	defm	cr,lf,tab,tab,'5. 5.25" DD'
+	defm	cr,lf,tab,tab,'6. 5.25" HD 300/360'
+	defz	cr,lf,tab,tab,'--> '
+t_msg2:	defm	cr,lf,tab,tab,'0. 40 Spuren'
+	defm	cr,lf,tab,tab,'1. 80 Spuren'
+	defz	cr,lf,tab,tab,'--> '
+t_msg3:	defm	cr,lf,tab,tab,'0. 1 Seite'
+	defm	cr,lf,tab,tab,'1. 2 Seiten'
+	defz	cr,lf,tab,tab,'--> '
+
+crt1m:	defz	tab,'CRT1: '
+crt2m:	defz	tab,'CRT2: '
+crtsm:	defz	'+1',0,0,'+?',0,0,'+2',0,0,'+1.5'
+handm:	defz	', Handshake, '
+nhandm:	defz	', kein Handshake, '
+baudt:	defm	'38400',0,'75',0,0,0,0,'110',0,0,0,'134.5',0,'150',0,0,0
+	defm	'300',0,0,0,'600',0,0,0,'1200',0,0,'1800',0,0,'2400',0,0
+	defm	'3600',0,0,'4800',0,0,'7200',0,0,'9600',0,0,'19200',0
+baudm:	defz	' Baud',cr,lf
+defmsg:	defm	tab,'CONIN: '
+cinum:	defm	'0, CONOUT: '
+conum:	defm	'0, AUXIN: '
+ainum:	defm	'0, AUXOUT: '
+aonum:	defm	'0, LSTOUT: '
+lstnum:	defm	'0',cr,lf
+	defz	tab,'('
+NewLin:	defz	CR,LF,TAB,' '
+setci:	defz	cr,lf,tab,tab,'CONIN:  --> '
+setco:	defz	cr,lf,tab,tab,'CONOUT: --> '
+setai:	defz	cr,lf,tab,tab,'AUXIN:  --> '
+setao:	defz	cr,lf,tab,tab,'AUXOUT: --> '
+setlst:	defz	cr,lf,tab,tab,'LSTOUT: --> '
+datbm:	defz	cr,lf,tab,tab,'Datenbits:  0=5, 2=6, 1=7, 3=8 --> '
+parbm:	defz	cr,lf,tab,tab,'Parity: 0=keine, 1=odd, 3=even --> '
+stopbm:	defz	cr,lf,tab,tab,'Stopbits:      0=1, 1=1.5, 2=2 --> '
+hndm:	defz	cr,lf,tab,tab,'Handshake:        0=nein, 1=ja --> '
+sbaudm:	defm	cr,lf,tab,tab,'Baudraten:'
+	defm	cr,lf,tab,tab,'B  75   E 150   H 1200   K 3600   N  9600'
+	defm	cr,lf,tab,tab,'C 110   F 300   I 1800   L 4800   O 19200'
+	defm	cr,lf,tab,tab,'D 134   G 600   J 2400   M 7200   A 38400'
+	defz	cr,lf,tab,tab,'--> '
+
+sizmsg:	defz	tab,'Speicher '
+szm:	defz	'k, Sommer'
+nzm:	defz	'k, Normal'
+zeitm:	defm	'zeit, Boot '
+drvm:	defm	'A:, Chain '
+chnm:	defz	'    ',cr,lf
+ssizm:	defz	cr,lf,tab,tab,'Speicher: 0=512k, 1=1M, 2=2M, 3=4M --> '
+sszm:	defz	cr,lf,tab,tab,'Sommerzeit: 0=Nein, 1=Ja --> '
+sbootm:	defz	cr,lf,tab,tab,'Bootlaufwerk: A..P (Q=EPROM) --> '
+schnm:	defm	cr,lf,tab,tab,'Search Chain: A..P=Drives, *=Default, x=Ende'
+	defz	cr,lf,tab,tab,'max. 4 Zeichen eingeben --> '
+
+	endif
+
+	if english
+
+h_msg:	defm	cr,lf,lf,'1. Disk Drives'
+	defm	cr,lf,'2. Interfaces'
+	defm	cr,lf,'3. Other'
+	defm	cr,lf,'0. Exit (Reboot)'
+	defz	cr,lf,'--> '
+
+d_msg:	defm	cr,lf,tab,'1. Drive A:'
+	defm	cr,lf,tab,'2. Drive B:'
+	defm	cr,lf,tab,'3. Drive C:'
+	defm	cr,lf,tab,'4. Drive D:'
+	defm	cr,lf,tab,'0. back'
+	defz	cr,lf,tab,'--> '
+
+s_msg:	defm	')',cr,lf
+	defm	cr,lf,tab,'1. Hardware Parameters CRT1'
+	defm	cr,lf,tab,'2. Hardware Parameters CRT2'
+	defm	cr,lf,tab,'3. Baud Rate CRT1'
+	defm	cr,lf,tab,'4. Baud Rate CRT2'
+	defm	cr,lf,tab,'5. Declarations after Reset'
+	defm	cr,lf,tab,'0. back'
+	defz	cr,lf,tab,'--> '
+
+x_msg:	defm	cr,lf,tab,'1. Memory Size'
+	defm	cr,lf,tab,'2. Daylight Saving'
+	defm	cr,lf,tab,'3. Boot Drive'
+	defm	cr,lf,tab,'4. Drive Search Chain'
+	defm	cr,lf,tab,'0. back'
+	defz	cr,lf,tab,'--> '
+
+def:	defz	cr,lf,lf,tab,'actual values:',cr,lf
+
+typ0:	defz	' ---',cr,lf
+typ2:	defz	' 3.5" DD, '
+typ3:	defz	' 3.5" HD, '
+typ4:	defz	' 8", '
+typ5:	defz	' 5.25" HD 360, '
+typ6:	defz	' 5.25" DD, '
+typ7:	defz	' 5.25" HD 300/360, '
+trk0:	defz	'40 tracks, '
+trk1:	defz	'80 tracks, '
+sid0:	defz	'single-sided',cr,lf
+sid1:	defz	'double-sided',cr,lf
+t_msg1:	defm	cr,lf,tab,tab,'0. no drive'
+	defm	cr,lf,tab,tab,'1. 3.5" DD'
+	defm	cr,lf,tab,tab,'2. 3.5" HD'
+	defm	cr,lf,tab,tab,'3. 8"'
+	defm	cr,lf,tab,tab,'4. 5.25" HD 360'
+	defm	cr,lf,tab,tab,'5. 5.25" DD'
+	defm	cr,lf,tab,tab,'6. 5.25" HD 300/360'
+	defz	cr,lf,tab,tab,'--> '
+t_msg2:	defm	cr,lf,tab,tab,'0. 40 tracks'
+	defm	cr,lf,tab,tab,'1. 80 tracks'
+	defz	cr,lf,tab,tab,'--> '
+t_msg3:	defm	cr,lf,tab,tab,'0. single sided'
+	defm	cr,lf,tab,tab,'1. double sided'
+	defz	cr,lf,tab,tab,'--> '
+
+crt1m:	defz	tab,'CRT1: '
+crt2m:	defz	tab,'CRT2: '
+crtsm:	defz	'+1',0,0,'+?',0,0,'+2',0,0,'+1.5'
+handm:	defz	', Handshake, '
+nhandm:	defz	', no Handshake, '
+baudt:	defm	'38400',0,'75',0,0,0,0,'110',0,0,0,'134.5',0,'150',0,0,0
+	defm	'300',0,0,0,'600',0,0,0,'1200',0,0,'1800',0,0,'2400',0,0
+	defm	'3600',0,0,'4800',0,0,'7200',0,0,'9600',0,0,'19200',0
+baudm:	defz	' Baud',cr,lf
+defmsg:	defm	tab,'CONIN: '
+cinum:	defm	'0, CONOUT: '
+conum:	defm	'0, AUXIN: '
+ainum:	defm	'0, AUXOUT: '
+aonum:	defm	'0, LSTOUT: '
+lstnum:	defm	'0',cr,lf
+	defz	tab,'('
+NewLin:	defz	CR,LF,TAB,' '
+setci:	defz	cr,lf,tab,tab,'CONIN:  --> '
+setco:	defz	cr,lf,tab,tab,'CONOUT: --> '
+setai:	defz	cr,lf,tab,tab,'AUXIN:  --> '
+setao:	defz	cr,lf,tab,tab,'AUXOUT: --> '
+setlst:	defz	cr,lf,tab,tab,'LSTOUT: --> '
+datbm:	defz	cr,lf,tab,tab,'Data Bits:  0=5, 2=6, 1=7, 3=8 --> '
+parbm:	defz	cr,lf,tab,tab,'Parity:  0=none, 1=odd, 3=even --> '
+stopbm:	defz	cr,lf,tab,tab,'Stopbits:      0=1, 1=1.5, 2=2 --> '
+hndm:	defz	cr,lf,tab,tab,'Handshake:         0=no, 1=yes --> '
+sbaudm:	defm	cr,lf,tab,tab,'Baudrates:'
+	defm	cr,lf,tab,tab,'B  75   E 150   H 1200   K 3600   N  9600'
+	defm	cr,lf,tab,tab,'C 110   F 300   I 1800   L 4800   O 19200'
+	defm	cr,lf,tab,tab,'D 134   G 600   J 2400   M 7200   A 38400'
+	defz	cr,lf,tab,tab,'--> '
+
+sizmsg:	defz	tab,'Memory '
+szm:	defz	'k, Daylight Saving enabled'
+nzm:	defz	'k, Daylight Saving disabled'
+zeitm:	defm	', Boot '
+drvm:	defm	'A:, Chain '
+chnm:	defz	'    ',cr,lf
+ssizm:	defz	cr,lf,tab,tab,'Memory: 0=512k, 1=1M, 2=2M, 3=4M --> '
+sszm:	defz	cr,lf,tab,tab,'DSE: 0=no, 1=yes --> '
+sbootm:	defz	cr,lf,tab,tab,'Boot Drive: A..P (Q=EPROM) --> '
+schnm:	defm	cr,lf,tab,tab,'Search Chain: A..P=Drives, *=Default, x=Exit'
+	defz	cr,lf,tab,tab,'input max. 4 characters --> '
+
+	endif
+
+;***********************************************************************
+;**                         Datenbereich                              **
+;***********************************************************************
+
+; Default-Einstellung bei Inbetriebnahme:
+
+drive0::defb	00011110b	; 5.25" 80 Spuren 2 Seiten
+drive1:	defb	00011110b	; ebenso
+drive2:	defb	0		; nicht vorhanden
+drive3:	defb	0		; "
+
+crt1h:	defb	def1h		; Defaults laut LDRIO.LIB
+crt1bd:	defb	def1bd
+crt2h:	defb	def1h		; CRT2 wie CRT1
+crt2bd:	defb	def1bd
+defci:	defb	0
+defco:	defb	0		; CON auf CRT1
+defai:	defb	1
+defao:	defb	1		; AUX auf CRT2
+deflst:	defb	1		; LST auf CRT2
+
+memsiz:	defb	0		; (wird automatisch gesetzt)
+sommer:	defb	0		; Normalzeit
+botdrv:	defb	0		; Boot von A:
+chain:	defb	0,-1,-1,-1	; Chain nur Default-Drive
+
+valnum	equ	$-drive0
+public	valnum
+
+	end
+

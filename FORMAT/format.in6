@@ -1,0 +1,169 @@
+(********************************************************************)
+(*  FORMAT.IN6 : Diskette formatieren                               *)
+(********************************************************************)
+
+(* 140692 Tilmann Reh *)
+
+procedure FormatDisk;
+var First,Last,Spur,Seite,s_ende  : byte;
+    PBlock,Init,Stamp,Cre,Acc,Upd : boolean;
+    SecTab                        : SkewTableTyp;
+    LogicalSectors                : byte;
+    dlabel                        : string[14];
+    UsedSectors,FaultTracks       : ByteSet;
+
+  procedure GetUsedSectorNumbers;
+  var i : byte;
+  begin
+    UsedSectors:=[];
+    for xi:=1 to LogicalSectors do
+      UsedSectors:=UsedSectors+[AktForm.SkewTable[xi]];
+    i:=1; for xi:=0 to 255 do
+      if xi in UsedSectors then begin SecTab[i]:=xi; i:=succ(i); end;
+    end;
+
+  function FormatSpur:boolean;    (* Spur,Seite global *)
+  var k,Sec,Off : byte;
+      Cmd       : FormCmdTyp;
+      idx       : CHRNtyp;
+  begin
+    with AktForm do begin
+      with Cmd do begin
+        Index:=addr(IndexField);
+        Dense:=Density; Head:=Seite;
+        SecS:=Sec_Shift; SecZ:=Sec_Zahl; Gap:=Gap3;
+        if boolean(Invers) then Fill:=$1A else Fill:=$E5;
+        if Spur=0 then if Density=3 then begin   (* ECMA-70 *)
+          Dense:=1; Gap:=Gap3 shr 1;
+          if SecS>0 then SecS:=pred(SecS);
+          end;
+        end;
+      idx.C:=Spur; idx.H:=Head[Seite]; idx.N:=Cmd.SecS;
+      for xi:=1 to Sec_Zahl do IndexField[xi]:=idx;
+      Off:=0; if Modus=1 then if Seite=1 then Off:=Sec_Zahl;
+      k:=Sec_Zahl div GGT(Sec_Zahl,Phys_Skew);
+      for xi:=0 to pred(Sec_Zahl) do begin
+        Sec:=SecTab[Off+succ((xi div k + (xi mod k)*Phys_Skew) mod Sec_Zahl)];
+        if Modus=1 then Sec:=Sec and $7F;
+        if (TTrans=4) and (Seite=1) then Sec:=Sec+Sec_Zahl;
+        IndexField[succ(xi)].R:=Sec;
+        end;
+      xi:=0; repeat
+        xb:=FormatTrack(Cmd);
+        if xb then xb:=ReadTrackDiagnostic(IndexField[1],
+                       Sec_Zahl*Zpot[Cmd.Secs+7],Seite,Sec_Zahl);
+        xi:=succ(xi);
+      until xb or (xi>2); (* Hinweis: Als EOT-Wert beim Verify dient nicht   *)
+      FormatSpur:=xb;     (* die letzte Sektornummer, sondern Sec_Zahl.      *)
+      end;                (* Der FDC scheint intern einfach ab 1 zu zaehlen. *)
+    end;
+
+  procedure initdir;
+  var sec,head,psec : byte;
+
+    procedure WriteSector(Trk,LSec:byte);
+    var k : integer;
+    dph   : ^integer absolute k;
+    begin
+      k:=DOSBIOS(9,0,AktDrive,1,0);           (* SELDSK *)
+      LSec:=DOSBIOS(16,0,LSec,dph^,0);        (* SECTRN *)
+      k:=DOSBIOS(23,0,1,0,0);                 (* MULTIO *)
+      k:=DOSBIOS(10,0,Trk,0,0);               (* SETTRK *)
+      k:=DOSBIOS(11,0,LSec,0,0);              (* SETSEC *)
+      k:=DOSBIOS(12,0,addr(SecBuf),0,0);      (* SETDMA *)
+      k:=DOSBIOS(28,1,0,0,0);                 (* SETBNK *)
+      k:=DOSBIOS(14,0,0,0,0)                  (* WRITE  *)
+      end;
+
+  begin
+    write(_InitDir);
+    with AktForm do begin
+      for xi:=0 to 1023 do SecBuf[xi]:=$E5;
+      for xi:=0 to 7 do SecBuf[xi shl 7+96]:=$21;
+      Sec:=0; Spur:=Offset;
+      for xi:=1 to Directory shl (BlockSize-Sec_Shift) do begin
+        WriteSector(Spur,Sec);
+        Sec:=succ(Sec);
+        if Sec>=LogicalSectors then begin Sec:=0; Spur:=succ(Spur); end;
+        end; { for }
+      end; { with }
+    end;
+
+  procedure SetStamps;
+  var fcb  : array[0..35] of byte;
+      pfcb : array[0..1] of integer;
+  begin
+    write(_SetStamps);
+    dlabel:=dlabel+#0; (* delimiter *)
+    pfcb[0]:=succ(addr(dlabel)); pfcb[1]:=addr(fcb);
+    BDOS(152,addr(pfcb)); (* Parse Filename *)
+    fcb[0]:=succ(AktDrive);
+    fcb[12]:=byte(Cre) shl 4 + byte(Upd) shl 5 + byte(Acc) shl 6;
+    RestoreBiosDrive;
+    BDOS(37,1 shl AktDrive);  (* Reset Disk *)
+    BDOS(100,addr(fcb));      (* Set Directory Label *)   (* Fehler? *)
+    SaveBiosDrive;
+    end;
+
+begin  { formatieren }
+  InputFormatNumber;
+  InputDrive;
+  with AktForm do if DiskSize<>AktSize then
+    if (DiskSize*AktSize=15) and (Density<4) then writeln(_DiffSize)
+    else begin Error(SizErr); exit; end;
+  with AktForm do
+  if (Modus>0) and (AktType and $10=0) then Error(SidErr) else
+  if (Spuren>45) and (AktType and $08=0) then Error(TrkErr) else
+  if (Density>3) and (AktType and 1=0) then Error(DenErr) else begin
+    if Modus<>1 then LogicalSectors:=Sec_Zahl else LogicalSectors:=Sec_Zahl+Sec_Zahl;
+    GetUsedSectorNumbers;
+    First:=0; Last:=pred(Spuren);
+    if not InputBoolean(_WholeDiskQ) then begin
+      write(_StartTrkQ); readln(First);
+      write(_EndTrkQ); readln(Last);
+      if Last>=Spuren then Last:=pred(Spuren);
+      if First>Last then First:=Last;
+      end;
+    PBlock:=false; Stamp:=false; Init:=False;
+    if (First=0) and (1 in UsedSectors) then PBlock:=InputBoolean(_WrParamQ);
+    if First=0 then Init:=InputBoolean(_DirInitQ);
+    if Init then Stamp:=InputBoolean(_StampsQ);
+    if Stamp then begin
+      Cre:=InputBoolean(_CreateQ);
+      if Cre then Acc:=false else Acc:=InputBoolean(_AccessQ);
+      Upd:=InputBoolean(_UpdateQ);
+      end;
+    repeat
+      xi:=DOSBIOS(9,0,AktDrive,1,0);    (* BIOS Select Disk (falls mehrere) *)
+      if Stamp then begin
+        write(_LabelQ); readln(dlabel);
+        if length(dlabel)=0 then dlabel:='LABEL';
+        end;
+      if InputBoolean(_FormatQ) then begin
+        GenParam;                       (* BIOS auf dieses Format einstellen *)
+        SetBiosParameterblocks(SecBuf); (* benoetigt bei Format/Verify/Write *)
+        FaultTracks:=[];
+        xi:=DOSBIOS(8,0,0,0,0);  (* HOME *)
+        if Modus>0 then s_ende:=1 else s_ende:=0;
+        for spur:=first to last do begin
+          write(_FTrack,spur:2);
+          if (Spuren<=45) and (AktType and $08>0) then SeekDirect(Spur+Spur)
+            else SeekDirect(spur);
+          for Seite:=0 to s_ende do if not FormatSpur then
+            FaultTracks:=FaultTracks+[Spur];
+          end;
+        if FaultTracks<>[] then begin
+          write(_ErrTrks);
+          for xi:=first to last do if xi in FaultTracks then write(' ',xi);
+          writeln; Error(FrmErr);
+          end
+        else begin
+          if Init then InitDir;
+          if PBlock then WriteParameterBlock;
+          if Stamp then SetStamps;
+          end;
+        end;
+    until not InputBoolean(_MoreDisks);
+    end;
+  end;
+

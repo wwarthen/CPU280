@@ -1,0 +1,213 @@
+(********************************************************************)
+(*  FORMAT.IN2 : Gesamtliste drucken, Uebersicht, Daten anzeigen    *)
+(********************************************************************)
+
+(* 060708 Tilmann Reh *)
+
+(* Erstellen einer sortierten Index/Namensliste fuer Ausgaben *)
+
+type SortListTyp = record
+                     nummer : integer;
+                     name   : CharArray20;
+                     end;
+     SortListe   = array[1..1000] of SortListTyp;
+var  SortListPtr : ^SortListe;
+     SortBuf     : SortListTyp;
+     Sortiert,FileOut : boolean;
+     ListSize,Nr : integer;
+     vs          : CharArray20;
+
+{$A-}
+procedure QuickSortList(anfang,ende:integer);
+var li,re : integer;
+begin
+  li:=anfang; re:=ende;
+  vs:=SortListPtr^[(li+re) shr 1].Name;
+  repeat
+    while SortListPtr^[li].Name<vs do li:=succ(li);
+    while SortListPtr^[re].Name>vs do re:=pred(re);
+    if li<=re then begin
+      SortBuf:=SortListPtr^[li];
+      SortListPtr^[li]:=SortListPtr^[re];
+      SortListPtr^[re]:=SortBuf;
+      li:=succ(li); re:=pred(re);
+      end;
+  until li>re;
+  if re>anfang then QuickSortList(anfang,re);
+  if li<ende then QuickSortList(li,ende);
+  end;
+{$A+}
+
+procedure Sortieren;
+var up : CharArray20;
+    j  : byte;
+begin
+  seek(Datei,0);
+  ListSize:=filesize(Datei) shl 7;
+  Sortiert:=maxavail>=ListSize;
+  if Sortiert then begin
+    getmem(SortListPtr,ListSize);
+    for xi:=1 to filesize(Datei) do begin
+      blockread(Datei,AktForm,1);
+      SortListPtr^[xi].Nummer:=xi;
+      up:=AktForm.Name;
+      for j:=1 to 20 do up[j]:=upcase(up[j]);
+      SortListPtr^[xi].Name:=up;
+      end;
+    QuickSortList(1,filesize(Datei));
+    end;
+  end;
+
+procedure FreeSortMemory;
+begin
+  freemem(SortListPtr,ListSize);
+  end;
+
+(*--------- LISTE AUF BILDSCHIRM -----------*)
+
+procedure List;
+label ExitList;
+var Zeile,Spalte : byte;
+begin
+  clrscr; Zeile:=2; Spalte:=0;
+  Sortieren;
+  for xi:=1 to filesize(Datei) do begin
+    gotoxy(succ(27*Spalte),Zeile);
+    if Sortiert then Nr:=SortListPtr^[xi].Nummer else Nr:=xi;
+    seek(Datei,pred(Nr));
+    blockread(Datei,AktForm,1);
+    write('<',Nr:3,'> ',AktForm.Name);
+    Zeile:=succ(Zeile);
+    if Zeile=22 then begin Zeile:=2; Spalte:=succ(Spalte); end;
+    if (Spalte=3) then if not eof(Datei) then begin
+      gotoxy(1,23); write(_Continue);
+      repeat read(kbd,xc) until xc in [^M,#27];
+      if xc=#27 then goto ExitList;
+      clrscr; Spalte:=0;
+      end;
+    end;
+  gotoxy(1,23);
+  WaitTaste;
+ExitList: if Sortiert then FreeSortMemory;
+  end;
+
+(*--------- GESAMTLISTE AUSDRUCKEN ---------*)
+
+procedure PrintOut;
+const Den  : array[1..4,1..6] of char = ('    FM','   MFM','  ECMA','    HD');
+      Mode : array[0..3,1..5] of char = ('   - ','  Sec','  Trk','  Hlf');
+      X    : array[0..1,1..3] of char = ('  -','  X');
+var f : text;
+    rand : byte;
+
+  (*--- Prozedur PrintDateTime liest Uhr und druckt Datum und Uhrzeit ---*)
+
+  procedure PrintDateTime;
+  const MonAnf : array[1..12] of integer
+               = (0,31,59,90,120,151,181,212,243,273,304,334);
+  var Min      : byte;       (* Diese Reihen-    ** Do NOT CHANGE  *)
+      Hour     : byte;       (* folge auf KEINEN ** order of these *)
+      Datum    : integer;    (* FALL aendern!!!  ** variables!!!   *)
+      Jahr     : byte;
+  begin
+    xi:=BDOS(105,addr(Datum));
+    xi:=365; Jahr:=78;
+    while Datum>xi do begin
+      Datum:=Datum-xi; Jahr:=succ(Jahr);
+      if Jahr and 3=0 then xi:=366 else xi:=365;
+      end;
+    if (Jahr and 3=0) and (Datum>59) then Datum:=pred(Datum);
+    xi:=12; while Datum<=MonAnf[xi] do xi:=pred(xi);
+    Jahr:=Jahr mod 100;
+    writeln(f,Datum-MonAnf[xi],'.',xi,'.',Jahr div 10,Jahr mod 10,'  ',
+                Hour shr 4,Hour and 15,':',Min shr 4,Min and 15);
+    end;
+
+begin
+  write(^m^j^m^j^m^j);
+  Sortiert:=InputBoolean(_SortQ);
+  FileOut:=InputBoolean(_ListFileQ);
+  if Sortiert then Sortieren;
+  if FileOut then begin rand:=0; assign(f,'FORMAT.LST'); end
+  else begin rand:=15; assign(f,'PRN:'); end;
+  rewrite(f);
+  write(f,'':rand,_ListHead); PrintDateTime; writeln(f);
+  write(f,'':rand,'Nr.  Name                 Siz Trk SecGr Sec Dense SMod Hd0 Hd1 Psk Iv Ms TT  Skw Bls   Dir Off'^M^J);
+  write(f,'':rand); for xi:=1 to 94 do write(f,'='); writeln(f);
+  for xi:=1 to filesize(Datei) do begin
+    if Sortiert then Nr:=SortListPtr^[xi].Nummer else Nr:=xi;
+    seek(Datei,pred(Nr));
+    blockread(Datei,AktForm,1);
+    with AktForm do begin
+      write(f,'':rand,Nr:3,'  ', Name, DiskSize:3, '"', Spuren:4,
+               Zpot[Sec_Shift+7]:6,Sec_Zahl:4, Den[Density],
+               Mode[Modus], Head[0]:4);
+      if Modus>0 then write(f,Head[1]:4) else write(f,'   -');
+      write(f, Phys_Skew:4, X[Invers], X[Multi]);
+      if TTrans=0 then write(f,'  -') else write(f,TTrans:3);
+      writeln(f, Skew:5, Zpot[BlockSize-3]:4,
+                 Directory*Zpot[BlockSize+2]:6, Offset:4);
+      end;
+    end;
+  if Sortiert then FreeSortMemory;
+  close(f);
+  end;
+
+(*--------- FORMATDATEN ANZEIGEN -----------*)
+
+procedure DisplaySectorList(ST:SkewTableTyp; Secs,Modus:byte);
+var n : byte;
+begin
+  write(_SecOrder);
+  if Modus=1 then Secs:=Secs+Secs;
+  for xi:=1 to Secs do begin
+    n:=ST[xi];
+    if (n<$80) or (Modus<>1) then write(n) else write('B',n and $7F);
+    write(' ');
+    end;
+  writeln;
+  end;
+
+procedure DisplayPhysicalFormat(var f:Format; ShowModus:boolean);
+begin
+  with f do begin
+    writeln(_DiskSize,DiskSize,_Inches,Spuren,_Tracks);
+    write(Sec_Zahl,_SecEach,Zpot[Sec_Shift+7],_Bytes);
+    case Density of
+      1 : write(_SingleDen);
+      2 : write(_DoubleDen);
+      3 : write(_ECMADen);
+      4 : write(_HighDen);
+      end;
+    case Modus of
+      0 : write(_OneSide);
+      1 : begin write(_TwoSide); if ShowModus then write(_TwoSideSec); end;
+      2 : write(_TwoSideTrk);
+      3 : write(_TwoSideHalf);
+      end;
+    write(_HeadNumber);
+    if Modus=0 then write(' ',Head[0])
+    else write(_HeadMult,Head[0],'/',Head[1]);
+    writeln(_PhysSkew,Phys_Skew);
+    end;
+  end;
+
+procedure Show(CmdLine:boolean);
+begin
+  if CmdLine then write(^M^J,_FormName,AktForm.Name)
+  else InputFormatNumber;
+  with AktForm do begin
+    DisplayPhysicalFormat(AktForm,true);
+    if boolean(Invers) then write(_Invert);
+    if boolean(Multi) then write(_Multi);
+    if TTrans>0 then writeln(_TrkTrans,TTrans);
+    if not CmdLine then writeln;
+    if Skew>0 then writeln(_LogSkew,Skew)
+    else DisplaySectorList(SkewTable,Sec_Zahl,Modus);
+    write(_BlockSize,Zpot[BlockSize-3],'k, ');
+    write(Directory*Zpot[BlockSize+2],_DirEntries);
+    write(Offset,_Reserved);
+    end;
+  if not CmdLine then begin writeln; WaitTaste; end;
+  end;
+

@@ -1,0 +1,147 @@
+	title	'Real-Time Clock Support Module of CP/M-3 BIOS'
+	.z280
+	.xlist
+	maclib	Z280EQU
+	maclib	CPU280
+	maclib	OPTIONS
+	.list
+
+; 930327 Tilmann Reh
+
+; Das gesamte CLOCK-Modul liegt im gebankten Bereich und darf nur }ber
+; System Call aufgerufen werden (es sei denn, die CPU befindet sich
+; bereits im System Mode).
+
+	dseg
+
+time::	push	hl
+	push	de		; Register retten
+	push	bc
+	iopage	boardp
+	pop	bc
+	in	a,(rtc+11)
+	set	7,a
+	out	(rtc+11),a	; 'SET' Bit setzen: keine Updates mehr
+	inc	c
+	jr	z,settime	; C=FF : Uhr stellen
+
+	in	a,(rtc+9)	; Jahr aus Uhr (BCD)
+	ld	hl,0		; Tagesanzahl mit 0 vorbelegen
+	ld	de,365		; normalerweise 365 Tage addieren (pro Jahr)
+	ld	b,00100010b	; Bitmaske f}r Carry bei Schaltjahr
+	sub	78h
+cloop:	daa			; Anzahl der Jahre seit 1978
+	jr	z,exyear
+	rlc	b
+	adc	hl,de		; 365 / 366 Tage addieren
+	dec	a
+	jr	cloop		; Jahreszahl BCD dekrementieren bis 0 erreicht
+exyear:	in	a,(rtc+8)	; Monat aus Uhr lesen (BCD)
+	bit	7,b		; aktuelles Jahr Schaltjahr ?
+	ld	de,dnosw
+	jr	z,nswitch
+	ld	de,dsw		; DE mit Zeiger auf entspr. Tabelle laden
+nswitch: ld	b,0		; High-Byte f}r Addition immer 0
+mloop:	ex	de,hl
+	ld	c,(hl)		; Tageszahl des entspr. Monats lesen
+	inc	hl
+	ex	de,hl
+	add	hl,bc		; und zu Gesamtzahl addieren
+	dec	a
+	daa			; Monat BCD dekrementieren
+	jr	nz,mloop	; bis Monat erreicht
+	sbc	hl,bc		; aktueller Monat zuviel addiert !
+	in	a,(rtc+7)	; Tag aus Uhr lesen (BCD)
+	ld	d,a		; BCD nach D (16*Z + 1*E)
+	and	0Fh
+	ld	e,a		; Einer nach E
+	ld	a,d
+	sub	e		; Zehner in A (16*Z)
+	rrca
+	rrca			; Zehner in A (4*Z)
+	add	a,d		; -> 20*Z + 1*E
+	add	a,e		; -> 20*Z + 2*E
+	rra			; Bin{rer Wert in A (10*Z + 1*E)
+	add	hl,a		; Tage addieren
+	ld	(@date),hl	; in SCB eintragen
+	in	a,(rtc+4)	; Stunden (BCD)
+	ld	(@hour),a	; -> SCB
+	in	a,(rtc+2)	; Minuten (BCD)
+	ld	(@min),a	; -> SCB
+	in	a,(rtc+0)	; Sekunden (BCD)
+	ld	(@sec),a	; -> SCB
+clkret:	in	a,(rtc+11)
+	res	7,a
+	out	(rtc+11),a	; 'SET' Bit r}cksetzen: wieder Updates
+	pop	de
+	pop	hl
+	ret
+
+; Stellen der Uhr: Ausrechnen der BCD-Werte aus den gelieferten bin{ren
+; Daten (vor allem Datum in Tagesanzahl).
+
+settime:ld	hl,(@Date)	; Division Tageszahl durch 7 --> Wochentag
+	ld	de,0
+	divw	dehl,7		; Ergebnis: Rest 0 = Sonntag .. 6 = Samstag
+	ld	a,e
+	inc	a		; RTC l{uft von 1..7 (Sonntag..Samstag)
+	out	(RTC+6),a	; Wochentag stellen (f}r DSE-Umschaltung)
+	ld	hl,(@date)
+	ld	de,365
+	ld	b,00100010b	; Bitmaske erzeugt CARRY bei Schaltjahr
+	ld	a,78h		; Anzahl Tage ab 1978
+cyloop:	rlc	b
+	sbc	hl,de		; 365 bzw. 366 abziehen
+	jr	c,cyexit
+	jr	z,cyexit	; bis negativ oder null
+	inc	a
+	daa			; Jahr BCD inkrementieren
+	jr	cyloop
+cyexit:	rrc	b
+	adc	hl,de		; Tageszahl korrigieren
+	out	(rtc+9),a	; Jahr in Uhr schreiben
+	bit	7,b		; in B noch Schaltjahr-Maske
+	ld	de,dnosw
+	jr	z,nosw
+	ld	de,dsw		; DE mit Zeiger auf entspr. Tabelle laden
+nosw:	ld	a,1
+	ld	b,0		; High-Byte f}r Subtraktion immer 0
+cmloop:	ex	de,hl
+	ld	c,(hl)		; Tageszahl des entspr. Monats lesen
+	inc	hl
+	ex	de,hl
+	or	a
+	sbc	hl,bc		; und von Gesamtzahl abziehen
+	jr	c,cmexit
+	jr	z,cmexit	; bis 0 oder negativ
+	inc	a
+	daa			; Monat BCD inkrementieren
+	jr	cmloop
+cmexit:	add	hl,bc		; Korrekturaddition
+	out	(rtc+8),a	; Monate in Uhr schreiben
+
+calcd:	ld	a,l		; Rest Tage noch bin{r
+	cp	10
+	jr	c,cd1
+	add	a,6
+	cp	26
+	jr	c,cd1
+	add	a,6
+	cp	42
+	jr	c,cd1
+	add	a,6
+cd1:	out	(rtc+7),a	; Tage in Uhr schreiben
+	ld	a,(@hour)
+	out	(rtc+4),a	; Stunden -> Uhr
+	ld	a,(@min)
+	out	(rtc+2),a	; Minuten -> Uhr
+	ld	a,(@sec)
+	out	(rtc+0),a	; Sekunden -> Uhr
+	in	a,(rtc)		; wg. Chipfehler
+	jp	clkret
+
+dnosw:	defb	31,28,31,30,31,30,31,31,30,31,30,31
+dsw:	defb	31,29,31,30,31,30,31,31,30,31,30,31
+
+	end
+

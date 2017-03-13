@@ -1,0 +1,74 @@
+(********************************************************************)
+(*  FORMAT.IN0 : Allgemeine Typ-Deklarationen und Konstanten        *)
+(********************************************************************)
+
+(* 150692 Tilmann Reh *)
+
+const WL           = 50;   (* Laenge aller WorkStrings *)
+
+type  SkewTableTyp = array[1..64] of byte;
+      String2      = string[2];
+      WorkString   = string[WL];
+      CharArray20  = array[1..20] of char;
+      ByteSet      = set of byte;
+      HeadArray    = array[0..1] of byte;
+      ByteArray4   = array[1..4] of byte;
+
+      Format     = record                              (* Genau 128 Byte!  *)
+                     Name               : CharArray20;
+                     DiskSize,Spuren,
+                     Sec_Shift,Sec_Zahl,
+                     Density,Modus,
+                     Invers,Multi,
+                     Skew,Phys_skew,
+                     Gap3,                             (* Gap3 zum Format. *)
+                     TTrans             : byte;        (* Spuruebersetzung *)
+                     Head               : HeadArray;   (* Head-ID          *)
+                     Reserved1          : array[1..4] of byte;
+                     Blocksize,Directory,
+                     Offset             : byte;
+                     Reserved2          : array[1..23] of Byte;
+                     Skewtable          : SkewTableTyp;
+                     end;
+
+      DPBtyp     = record
+                     spt                    : integer;
+                     bsh,blm,exm            : byte;
+                     dsm,drm                : integer;
+                     al0,al1                : byte;
+                     cks,off                : integer;
+                     psh,phm                : byte;
+                     end;
+      FPBtyp     = record
+                     it0,id1,id2            : byte;
+                     DPB                    : DPBtyp;
+                     psec,ptrk              : byte;
+                     hd                     : HeadArray;
+                     trktrans               : byte;
+                     reserved0              : array[1..5] of byte;
+                     bf1,bf2,it1            : byte;
+                     name                   : CharArray20;
+                     reserved1              : array[1..9] of byte;
+                     Sec1,Sec33             : byte;
+                     case byte of
+                       0 : (it2             : byte;
+                            reserved2       : array[1..31] of byte;
+                            it3             : byte);
+                       1 : (SkewTable       : SkewTableTyp);
+                     end;
+      chrntyp    = record
+                     C,H,R,N : byte;
+                     end;
+      FormCmdTyp = record
+                     Index                         : integer;
+                     Dense,Head,SecS,SecZ,Gap,Fill : byte;
+                     end;
+
+const Zpot       : array[0..10] of integer
+                 = (1,2,4,8,16,32,64,128,256,512,1024);
+
+var   xb         : boolean;  (* Globale Variablen zur freien lokalen *)
+      xc         : char;     (* (kurzfristigen) Verwendung.          *)
+      xi         : integer;
+      xs         : WorkString;
+

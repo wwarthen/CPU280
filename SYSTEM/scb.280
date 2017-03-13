@@ -1,0 +1,38 @@
+	title	'System Control Block Module of CP/M-3 BIOS'
+
+; 930108 Tilmann Reh
+
+;***********************************************************************
+;**                 SYSTEM CONTROL BLOCK DEFINITION                   **
+;***********************************************************************
+
+public	SCB,@CIVec,@COVec,@AIVec,@AOVec,@LOVec
+public	@ErMde,@Media,@Date,@Hour,@Min,@Sec,@MxTPA
+
+SCB	equ	0FE00H		; Base of SCB for Init Manipulations
+@CIVec	equ	SCB+22h		; Console Input Redirection Vector (word, r/w)
+@COVec	equ	SCB+24h		; Console Output Redirection Vector (word, r/w)
+@AIVec	equ	SCB+26h		; Auxiliary Input Redirection Vector (word, r/w)
+@AOVec	equ	SCB+28h		; Auxiliary Output Redirection Vector (word, r/w)
+@LOVec	equ	SCB+2Ah		; List Output Redirection Vector (word, r/w)
+@BnkBf	equ	SCB+35h		; Address of 128 Byte Buffer for Banked BIOS (word, r/o)
+@CrDMA	equ	SCB+3Ch		; Current DMA Address (word, r/o)
+@CrDsk	equ	SCB+3Eh		; Current Disk (byte, r/o)
+@VInfo	equ	SCB+3Fh		; BDOS Variable "INFO" (word, r/o)
+@Resel	equ	SCB+41h		; FCB Flag (byte, r/o)
+@FX	equ	SCB+43h		; BDOS Function for Error Messages (byte, r/o)
+@UsrCd	equ	SCB+44h		; Current User Code (byte, r/o)
+@MltIO	equ	SCB+4Ah		; Current Multi-Sector Count (byte,r/w)
+@ErMde	equ	SCB+4Bh		; BDOS Error Mode (byte, r/o)
+@ErDsk	equ	SCB+51h		; BDOS Error Disk (byte,r/o)
+@Media	equ	SCB+54h		; Set by BIOS to indicate open door (byte,r/w)
+@BFlgs	equ	SCB+57h		; BDOS Message Size Flag (byte,r/o)  
+@Date	equ	SCB+58h		; Date in Days Since 1 Jan 78 (word, r/w)
+@Hour	equ	SCB+5Ah		; Hour in BCD (byte, r/w)
+@Min	equ	SCB+5Bh		; Minute in BCD (byte, r/w)
+@Sec	equ	SCB+5Ch		; Second in BCD (byte, r/w)
+?ErJmp	equ	SCB+5Fh		; BDOS Error Message Jump (word, r/w)
+@MxTPA	equ	SCB+62h		; Top of User TPA (address at 6,7)(word, r/o)
+
+	end
+

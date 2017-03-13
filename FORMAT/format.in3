@@ -1,0 +1,97 @@
+(********************************************************************)
+(*  FORMAT.IN3 : Formatdaten Editieren                              *)
+(********************************************************************)
+
+(* 140692 Tilmann Reh *)
+
+procedure Edit(Nr:integer);
+const Fact     : array[1..4] of byte = (1,2,2,4);
+      IdamGap4 : array[1..4] of byte = (113,146,146,146);
+      IDM      : array[1..4] of byte = (33,62,62,62);
+
+var   n,gmin,bpt,bps,den : integer;
+      alt                : boolean;
+
+  procedure Select(text:WorkString; term:ByteSet; var zahl:byte);
+  var altzahl : byte;
+  begin
+    altzahl:=zahl;
+    repeat
+      write(text:WL,' ');
+      if alt then write('(',altzahl:2,') ');
+      readln(zahl);
+    until zahl in term;
+    end;
+
+begin
+  xi:=filesize(Datei); alt:=Nr<xi;
+  if alt then begin
+    seek(Datei,Nr); blockread(Datei,AktForm,1);
+    writeln(_FormatName,AktForm.Name); end
+  else begin
+    Nr:=xi; fillchar(AktForm,sizeof(AktForm),0);
+    fillchar(AktForm.Name,sizeof(AktForm.Name),' '); end;
+  with AktForm do begin
+    write(_FormNameQ:WL,' '); readln(xs);
+    if length(xs)>0 then StringToArray(xs,Name);
+    select(_DiskSizeQ,[3,5,8],DiskSize);
+    select(_TracksQ,[25..85],Spuren);
+    select(_DenseQ,[1..4],Density);
+    select(_SecSizeQ,[0..3],Sec_Shift);
+    if (DiskSize=8) then bpt:=5208 else bpt:=3125;       (* Byte/Track FM   *)
+    den:=Density;
+    if (DiskSize=5) and (den=4) then begin den:=2; bpt:=5208; end;
+    bpt:=Fact[den]*bpt-IdamGap4[den]-bpt div 50;         (* Den, IDAM, GAP4 *)
+    bps:=Zpot[Sec_Shift+7]+IDM[den];                     (* Byte/Sector     *)
+    gmin:=succ(bps div 50); if gmin<5 then gmin:=5;      (* GAP3 min : 2%   *)
+    select(_SecNumQ,[1..bpt div (bps+gmin)],Sec_Zahl);
+    xi:=(bpt div Sec_Zahl - bps + gmin) shr 1;           (* GAP3 Mittelwert *)
+    if xi>255 then Gap3:=255 else Gap3:=xi;
+    select(_OverflowQ,[0..3],Modus);
+    select(_Head0Q,[0..255],Head[0]);
+    if Modus>0 then select(_Head1Q,[0..255],Head[1]);
+    select(_PhysSkewQ,[1..pred(Sec_Zahl)],Phys_Skew);
+    select(_InvertQ,[0,1],Invers);
+    select(_MultiQ,[0,1],Multi);
+    select(_TrkTransQ,[0..4],TTrans);
+    select(_LogSkewQ,[0..pred(Sec_Zahl)],Skew);
+    select(_BlockSizeQ,[3..7],BlockSize);
+    str(Zpot[BlockSize+2],xs);
+    select(_DirBlocksQ+xs+_Entries,[1..16],Directory);
+    select(_OffsetQ,[0..pred(Spuren)],Offset);
+    if Skew>0 then begin  (* SkewTabelle berechnen *)
+      xi:=Sec_Zahl div ggt(Sec_Zahl,Skew);
+      for n:=0 to pred(Sec_Zahl) do
+        SkewTable[succ(n)]:=succ((n mod xi * Skew + n div xi) mod Sec_Zahl);
+      if Modus=1 then for xi:=1 to Sec_Zahl do
+        SkewTable[xi+Sec_Zahl]:=SkewTable[xi] or $80;
+      end
+    else begin  (* SkewTabelle eingeben *)
+      n:=Sec_Zahl; if Modus=1 then n:=n+n;
+      if alt then DisplaySectorList(SkewTable,Sec_Zahl,Modus);
+      writeln(_NewTable);
+      xi:=1; repeat
+        readln(xs);
+        if length(xs)>0 then
+          if upcase(xs[1])='B' then begin
+            val(copy(xs,2,WL),bps,bpt);
+            SkewTable[xi]:=bps or $80;
+            end
+          else begin val(xs,bps,bpt); SkewTable[xi]:=bps; end;
+        xi:=succ(xi);
+      until (xi>n) or (length(xs)=0);
+      end;
+    end;
+  seek(Datei,Nr);
+  blockwrite(Datei,AktForm,1);
+  close(Datei); reset(Datei);
+  end;
+
+procedure Editieren;
+begin
+  clrscr;
+  xi:=succ(filesize(datei));   (* <RETURN> = neues Format *)
+  write(_EditFormQ); readln(xi);
+  Edit(pred(xi));
+  end;
+

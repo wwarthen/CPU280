@@ -1,0 +1,125 @@
+(********************************************************************)
+(*  FORMAT.IN5 : Parameterblock-Operationen                         *)
+(********************************************************************)
+
+(* 010707 Tilmann Reh *)
+
+(* Erzeugen eines Parameterblockes (anhand AktForm) in SecBuf *)
+
+procedure GenParam;
+const Alloc : array[1..24] of byte
+            = (0,0,0,0,0,0,0,0,
+               $80,$C0,$E0,$F0,$F8,$FC,$FE,$FF,
+               $FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF);
+      BF_1  : array[1..4] of byte = ($00,$40,$40,$C0);
+begin
+  fillchar(FPB,sizeof(FPB),0);
+  with AktForm do with FPB do with DPB do begin
+    id1:=$AE; id2:=$BF;
+    spt:=Sec_Zahl*Zpot[Sec_Shift];
+    bsh:=BlockSize; blm:=pred(Zpot[BlockSize]); exm:=pred(Zpot[Blocksize-3]);
+    xi:=Spuren; case Modus of
+      1   : spt:=spt+spt;
+      2,3 : xi:=xi+xi;
+      end;
+    dsm:=pred((xi-offset)*spt div Zpot[blocksize]);
+    if dsm>255 then exm:=exm shr 1;
+    cks:=Directory*Zpot[BlockSize];
+    drm:=pred(cks shl 2);
+    al0:=Alloc[Directory+8]; al1:=Alloc[Directory];
+    off:=Offset;
+    psh:=Sec_Shift; phm:=pred(Zpot[Sec_Shift]);
+    psec:=Sec_Zahl; ptrk:=Spuren;
+    hd:=Head;
+    trktrans:=TTrans;
+    bf1:=BF_1[Density] + Invers shl 3 + Multi shl 2 + Modus;
+    FPB.Name:=AktForm.Name;
+    FPB.SkewTable:=AktForm.SkewTable;
+    Sec1:=AktForm.SkewTable[1];
+    Sec33:=AktForm.SkewTable[33];
+    it0:=$21; it1:=$21; it2:=$21; it3:=$21;
+    end;
+  end;
+
+procedure WriteParameterBlock;
+begin
+  xi:=DOSBIOS(8,0,0,0,0);  (* HOME *)
+  xi:=CheckDensity(0);
+  if not ReadPhysicalSector(0,Result^.H,1,Result^.N,SecBuf) then Error(RdErr) else begin
+    GenParam;
+    if not WritePhysicalSector then Error(WrErr);
+    end;
+  end;
+
+procedure WriteParam;
+begin
+  InputFormatNumber;
+  InputDrive;
+  with AktForm do if DiskSize<>AktSize then
+    if (DiskSize*AktSize=15) and (Density<4) then
+      writeln(_DiffSize)
+    else begin Error(SizErr); exit; end;
+  if InputBoolean('Parameterblock wirklich schreiben') then WriteParameterBlock;
+  end;
+
+(*--------- FREMDFORMAT BEARBEITEN ---------*)
+
+function SetFormatParameter:boolean;
+begin
+  (* hier ueberpruefen, ob Bearbeitung moeglich! *)
+  GenParam;
+  SetBiosParameterblocks(SecBuf);
+  SetFormatParameter:=true;
+  end;
+
+procedure SetFormat;
+begin
+  InputFormatNumber;
+  InputDrive;
+  xb:=SetFormatParameter;
+  WaitTaste;
+  end;
+
+(*--------- Kommandozeilenoption : Fremdformat / Untersuchen ----------*)
+
+procedure SetGetFormatCommandLine;
+var dum : integer;
+begin
+  xi:=filesize(Datei); if xi=0 then exit;
+  if paramstr(1)<>'?' then begin
+    val(paramstr(1),AktNum,dum);
+    if (dum>0) or (AktNum>xi) or (AktNum<1) then begin Error(NumErr); exit; end;
+    seek(Datei,pred(AktNum));
+    blockread(Datei,AktForm,1);
+    end;
+  SaveBiosDrive;
+  AktDriveChar:=upcase(copy(paramstr(2),1,1));
+  case AktDriveChar of
+    'A'..'D' : ;
+    '?'      : begin Show(true); halt; end;
+    else begin Error(DrvErr); exit; end;
+    end;
+  AktDrive:=ord(AktDriveChar)-$41;
+  xi:=DOSBIOS(9,0,AktDrive,1,0);    (* BIOS Select Disk *)
+  AktType:=GetDriveType;
+  AktSize:=DriveSize[AktType and 7];
+  if paramstr(1)='?' then begin
+    if AktSize=0 then begin Error(NotRdy); exit; end;
+    xi:=DOSBIOS(9,0,AktDrive,0,0);  (* Select Disk Cold *)
+    xi:=DOSBIOS(8,0,0,0,0);         (* HOME *)
+    Den:=CheckDensity(0);
+    if Den<0 then Error(NotRdy) else
+    if ReadPhysicalSector(0,Result^.H,1,Result^.N,SecBuf)
+      and (FPB.it0=$21) and (FPB.it1=$21) and (FPB.it2=$21) and (FPB.it3=$21)
+      and (FPB.id1=$AE) and (FPB.id2=$BF)
+      then GetIntForm(false) else GetExtForm(false);
+    end
+  else begin
+    if SetFormatParameter then
+      writeln(_InDrive,AktDriveChar,_NowForm,AktForm.Name);
+    end;
+  RestoreBiosDrive;
+  BDOS(37,1 shl AktDrive);
+  halt;
+  end;
+

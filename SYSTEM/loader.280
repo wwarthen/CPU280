@@ -1,0 +1,809 @@
+	title 'Cold Loader BIOS for CP/M 3'
+	.xlist
+	maclib	Z280EQU		; Z280 interne Register
+	maclib	CPU280		; Definitionen CPU280
+	maclib	LOADER		; Optionen
+	maclib	LDRIO		; Console I/O Macros
+	.list
+	.z280
+
+; 950215 Tilmann Reh
+
+Day	equ	14		; Werte f}r Datum im MDrive-DirLabel
+Month	aset	03
+Year	equ	95
+	ClcDat			; Makro berechnet Datum im CP/M-3 Format
+public	Date			; global g}ltig f}r MDrive-DirLabels
+
+Cache	equ	true		; Code- und Daten-Cache freigeben
+Ints	equ	i$c + i$ct0	; freizugebende Interrupts: INTC und Timer 0
+
+SysBase	equ	4000h		; CPM3.SYS ab 4000h im EPROM abgelegt
+
+;*****************************************************************
+;**	Interrupt / Trap Vector Table				**
+;*****************************************************************
+
+; ITVT mu~ auf Vielfachem von 1000h liegen, in diesem Falle auf log. 0000
+; (phys. 810000 nach Kopieren ins RAM). Erster Einsprung in ITVT wird als
+; Kaltstart- Einsprung benutzt (eigentlich 'reserved').
+; Einzige unters}tzte Interrupts: FDC und interner Timer CT0.
+
+Cold:	di				; wegen Chipfehler. TR 160790
+	jp	Cold1			; Kaltstart-Einsprung
+
+	defw	0,xreti1		; NMI
+	defw	0,xreti1		; INTA
+	defw	0,xreti1		; INTB
+	defw	0,FdcInt		; INTC
+	defw	0,TimInt		; CT0
+	defw	0,xreti1		; CT1
+	defw	0,xreti1		; reserved
+	defw	0,xreti1		; CT2
+	defw	0,xreti1		; DMA0
+	defw	0,xreti1		; DMA1
+	defw	0,xreti1		; DMA2
+	defw	0,xreti1		; DMA3
+	defw	0,xreti1		; UART RX
+	defw	0,xreti1		; UART TX
+	defw	0,xreti1		; SS TRAP
+	defw	0,xreti1		; HALT TRAP
+	defw	0,xreti1		; DIVISION TRAP
+	defw	0,xreti1		; STACK OFL
+	defw	0,xreti1		; ACC VIOLATION
+	defw	0,xreti2		; SC TRAP
+	defw	0,xreti1		; PRIV TRAP
+	defw	0,xreti3		; EPU
+	defw	0,xreti3		; EPU
+	defw	0,xreti3		; EPU
+	defw	0,xreti3		; EPU
+	defw	0,xreti1		; reserved
+	defw	0,xreti1		; reserved
+	; (Vektor-Tabellen entfallen)
+
+xreti3:	inc	sp
+	inc	sp
+xreti2:	inc	sp
+	inc	sp
+xreti1:	inc	sp
+	inc	sp
+	retil			; Interrupts ignorieren
+
+;*****************************************************************
+;**	Initialisierungen: MPU, Checksum, NVRAM, Speed, Refresh **
+;**	Alles noch ohne RAM-Benutzung (keine CALL, PUSH, POP!). **
+;*****************************************************************
+
+; Diverse Steuerregister der CPU initialisieren.
+
+Cold1:	ld	hl,0
+botlop:	dec	hl
+	ld	a,h
+	or	l
+	jr	nz,botlop	; Start-Up-Delay vor I/O-Zugriffen (RTC!)
+
+	iopage	boardp
+	out	(ld1_off),a	; erste LED ausschalten: CPU l{uft
+
+	iopage	rrrp
+	ld	a,90h
+	out	(rrr),a		; Refresh vorl{ufig alle 64 CPU-Zyklen
+
+	ld	c,btc
+	ld	l,11000011b
+	ldctl	(c),hl		; Bus Timing & Control: 3 I/O Waits
+
+	ld	c,ccr
+   if cache
+	ld	l,00101000b	; Data Cache aus (wegen RAM-Test), HM Burst on
+   else
+	ld	l,01100000b	; Cache und Burst-Mode komplett aus
+   endif
+	ldctl	(c),hl		; Cache Control Register setzen
+
+; 16-Bit-Pr}fsumme des EPROM ermitteln und in SP zwischenspeichern.
+
+	ld	hl,0		; Zeiger
+	ld	ix,0		; Summe
+	ld	a,0E0h		; f}r Vergleich auf Bank-Ende
+check:	ldw	de,(hl)
+	add	ix,de		; Wort addieren
+	inc	hl
+	inc	hl		; Zeiger +2
+	cp	h
+	jr	nz,check
+	ld	sp,ix		; Summe nach SP
+
+; MMU f}r Zugriff auf erste 32k EPROM setzen (0000-7FFF log=phys).
+; MMU wird nach RAM-Test komplett f}r User und System Mode neu belegt.
+
+	ld	a,10h
+	out	(pdr),a		; MMU PDR Pointer: nur System Mode laden
+	ld	bc,8*100h+bmp
+	ld	hl,tsttab
+	otirw			; MMU PDR's 0-7 System Mode f}r RAM-Test
+	ld	c,mmcr
+	ld	hl,1000100000000000b
+	outw	(c),hl		; MMU Master Control Register : MMU Enable
+
+; Falls Inbetriebnahme: Default-Einstellungen f}r CRT1 ins NVRAM schreiben,
+; damit CRT1 (falls Konsole) damit korrekt initialisiert wird (sp{ter).
+
+	iopage	boardp
+	in	a,(gpi)		; User-Jumper einlesen
+	bit	b$uj1,a
+	jr	z,defval	; UJ1 geschlossen: Inbetriebnahme
+	in	a,(checklo)
+	ld	b,a
+	in	a,(checkhi)
+	and	b
+	inc	a		; NVRAM-Pr}fsumme FFFF (RTC-Reset) ?
+	jr	nz,speed	; nein: ok, Werte in NVRAM g}ltig
+defval:	ld	a,def1h
+	out	(s$c1h),a
+	ld	a,def1bd
+	out	(s$c1bd),a	; bei Inbetriebnahme CRT1 auf Defaults
+
+; Automatische Erkennung der CPU-Taktfrequenz anhand der Echtzeituhr.
+; Hierzu wird generell auf 3 Wait-States geschaltet und nach der Messung
+; wieder auf den Jumper-eingestellten Wert zur}ck.
+; Bei ung}ltigem VRT-Bit: CPU stoppen, LED 2 leuchtet (LED 1&3 aus).
+; (IOPAGE ist noch Board-Page.)
+
+speed:	ld	c,bti
+	ldctl	hl,(c)		; bisheriges Bustiming (Waits) lesen
+	exx			; und retten
+	ld	c,bti
+	ld	l,00001101b	; BTI-Wert f}r 3 Waits bei Low Memory
+	ldctl	(c),hl
+	in	a,(rtcd)	; RTC-Register D lesen
+	cp	80h		; VRT-Bit gesetzt ?
+	jr	z,speed0	; ja: alles in Ordnung
+	out	(ld3_off),a
+	jr	$		; ansonsten HALT mit LED's off-on-off
+
+speed0:	ld	a,00100100b
+	out	(rtca),a	; 4096 Hz SQW / Periodic Int
+	in	a,(s$dse)	; Sommerzeit-Enable aus Setup
+	and	00000001b
+	or	00000010b
+	out	(rtcb),a	; Count Enable, BCD, 24h, evtl. DSE
+	ld	hl,20		; Z{hler r}cksetzen, Default-Zeitfaktor in L
+	ld	b,5
+speed1:	in	a,(rtcc)	; C-Register lesen
+	inc	h
+	jr	z,speeds	; Time-Out: Default-Zeit verwenden
+	bit	6,a
+	jr	z,speed1	; warten bis PF=1
+	ld	h,0		; Z{hler wieder Null
+	djnz	speed1		; f}nfmal warten : einschwingen lassen (!)
+speed2:	in	a,(rtcc)
+	inc	h
+	jr	z,speeds	; Time-Out: Default-Zeit verwenden
+	bit	6,a
+	jr	z,speed2	; dasselbe nochmal mit z{hlen
+	ld	de,0
+    if cache
+	lda	hl,(hl++448-20)	; f}r Rundung (Default-Wert in L ber}cks.)
+	divuw	dehl,896	; ergibt Taktfrequenz-Faktor
+    else
+	lda	hl,(hl++198-20)
+	divuw	dehl,397
+    endif
+speeds:	ld	a,l
+	out	(cpufreq),a	; Faktor (x 614400 Hz) speichern
+	exx
+	ldctl	(c),hl		; BTI wieder auf Originalwert setzen
+	ld	b,a		; Takt-Faktor auch nach B f}r sp{ter (CHRNIT)
+	out	(ld2_off),a	; zweite LED ausschalten: Frequenz erkannt
+
+; Setzen der Refreshrate entsprechend diesem Wert (auf 512 Refr. in 8 ms).
+
+	multu	a,24
+	divu	hl,10		; * 2.4 ergibt Refresh-Rate
+	set	7,a		; Refresh Enable
+	iopage	rrrp
+	out	(rrr),a		; Refresh Rate Register setzen
+	in	a,(rrr)		; wg. Chipfehler (falls CHRNIT mit JP beginnt!)
+
+; Initialisieren der Konsolenschnittstelle.
+
+	chrnit			; Makro
+
+; On-Board-Hardware (insbesondere FDC) initialisieren.
+
+	iopage	boardp
+	ld	a,0EDh
+	out	(Reti1),a
+	ld	a,4Dh
+	out	(Reti2),a	; Zwei Pl{tze im NVRAM f}r Z80-RETI-Timing
+	ld	a,88h
+	out	(FdcLdOr),a
+	in	a,(FdcLdCr)
+	ld	a,8Ch
+	out	(FdcLdOr),a
+	in	a,(FdcSta)	; Set FDC in Special Mode
+
+; RAM-Test durchf}hren und Speichergr|~e ermitteln.
+; Aufruf mit JP, da noch kein RAM benutzt werden darf.
+; (R}cksprung von RAM-Test nach DoBoot.)
+
+	jp	RamTst
+
+; Booten in System-Bank (ab Adr. 810000) und MMU-Programmierung daf}r.
+; MMU ist schon seit RAM-Test aktiv (enabled).
+
+DoBoot:	iopage	boardp
+	out	(ld3_off),a	; dritte LED ausschalten: RAM ok.
+	iopage	dmap
+	ld	c,dmcr
+	ld	hl,0
+	outw	(c),hl		; DMA Master Control Reg.
+	ld	hl,BootDMA
+	jp	DmaSet		; EPROM in System-Bank kopieren
+				; (R}cksprung nach SetMMU)
+
+; DMA-Parameterblock zum Booten:
+
+BootDMA:defb	dal3		; DMA 3
+	defw	0
+	defb	81h		; Dest 810000h
+	defw	0
+	defb	0		; Src 000000h
+	defw	7800h		; Length 30k words = 60 KB (Sys-Bank komplett)
+	defw	1000001100000000b ; descriptor (Mem --> Mem, words)
+
+; Endg}ltiges Setzen der MMU (alle PDR's) f}r User- und System Mode.
+; Im Loader wird nur der System Mode benutzt, und damit nur Bank 0
+; (System-Bank) addressiert. Im User-Mode wird Bank 1 (TPA) addressiert.
+
+SetMMU:	xor	a
+	out	(PDR),a		; MMU PDR Pointer (IOP noch FF von DMASET)
+	ld	bc,32*100h+BMP
+	ld	hl,MMUTab
+	otirw			; MMU PDR's User/System Mode setzen
+
+; Ab hier l{uft das Programm im RAM, d.h. mit Stack.
+
+	ld	(ChkSum),sp	; Pr}fsumme im RAM zwischenspeichern
+	ld	sp,Stack	; Stack zum Booten
+	ld	a,0C9h		; RET Opcode
+	ld	(DmaRet),a	; DMASET-Return nicht mehr nach SETMMU
+    if cache
+	ld	c,CCR
+	ld	l,00001000b	; Data Cache jetzt an (RAM ok)
+	ldctl	(c),hl		; Cache Control: Cache Enable, HM Burst On
+    endif
+
+; Interruptbearbeitung vorbereiten, INT Enable (f}r FDC und CT0).
+
+	ld	c,ITV
+	ld	hl,8100h
+	ldctl	(c),hl		; I/T Vector Table auf 810000h
+	ld	c,TCR
+	ld	hl,0
+	ldctl	(c),hl		; Trap Control Register
+	ld	c,ISR
+	ldctl	(c),hl		; Interrupt Status Register
+	im	3		; Mode 3
+	ei	Ints		; Interrupts Enable (FDC und CT0)
+
+; Timer 0 f}r 10-ms-Interrupt initialisieren und starten.
+
+	iopage	boardp
+	in	a,(CpuFreq)	; CPU-Taktfaktor in A
+	iopage	ctp		; IO Page FE
+	exts	a		; --> HL
+	ld	a,10101000b
+	out	(cr0),a		; CT0: Cont. Timer, Output, Interrupt
+	multuw	hl,1536		; ergibt Timer-Konstante f}r 10 ms
+	dec	hl		; n-1 in Timer-Register
+	ld	c,tc0
+	outw	(c),hl		; CT0 f}r 100 Hz Interrupt
+	ld	a,11100000b
+	out	(cs0),a		; CT0 Enable
+
+; Pr}fen, ob w{hrend RAM-Test eine Taste bet{tigt wurde.
+; Bei DEL (oder ge{nderter Checksum): Setup-Menu aufrufen.
+
+	iopage	boardp
+	in	a,(gpi)		; User-Jumper lesen
+	bit	b$uj1,a
+	jp	z,boots1	; UJ1 gesteckt: ins Setup gehen (Defaults!)
+	ld	hl,(ChkSum)
+	in	a,(CheckLo)
+	cp	l		; Low-Bytes vergleichen
+	jp	nz,BootS	; verschieden: Setup!
+	in	a,(CheckHi)
+	cp	h		; High-Bytes vergleichen
+	jp	nz,BootS	; verschieden: Setup!
+	inchar			; inzwischen Taste bet{tigt?
+	jr	c,Boot		; nein: normal booten
+	cp	DEL
+	jr	nz,Boot		; nur bei DEL : Setup-Menu (sonst normal)
+
+; Aufruf des Setup-Menu:
+; Vorher alle Einstellungen aus NVRAM laden, nachher wieder speichern.
+
+BootS:	iopage	boardp
+	ld	hl,Drive0
+	ld	c,s$drv0-1
+	ld	b,ValNum	; Anzahl der zu lesenden Werte
+setup1:	inc	c		; I/O-Adresse erh|hen
+	ini			; 1 Byte lesen
+	jr	nz,setup1	; bis alle Werte im Zwischenspeicher
+
+; (Setup-Einsprung bei erster Inbetriebnahme, ohne NVRAM-laden.)
+
+BootS1:	call	hmenu		; Haupt-Menu des Setup
+	iopage	boardp		; I/O-Page f}r Setup-NVRAM
+	ld	hl,Drive0
+	ld	c,s$drv0-1
+	ld	b,ValNum	; Anzahl der zu speichernden Werte
+exit1:	inc	c		; I/O-Adresse erh|hen
+	outi			; 1 Byte speichern
+	jr	nz,exit1	; bis alle Werte im Setup-RAM
+	ld	hl,(ChkSum)
+	ld	a,l
+	out	(CheckLo),a
+	ld	a,h
+	out	(CheckHi),a	; erst nach Setup neue Pr}fsumme speichern!
+				; (anschlie~end normal booten)
+
+;***********************************************************************
+;**	Booten von Laufwerk (mit LDOS) oder aus EPROM (direkt)        **
+;***********************************************************************
+
+; Alle Laufwerke initialisieren (Treiber anhand XDPH aufrufen).
+; Dabei werden bei Fehlern die entsprechenden Drives in DTBL gel|scht.
+; Die RAM-Disks werden dabei ggf. initialisiert (Directory!).
+
+Boot:	ld	b,16		; Alle 16 logischen Laufwerke bearbeiten
+	ld	hl,DTbl		; Zeiger auf Drive Table
+DrvIni:	push	hl
+	ldw	hl,(hl)		; Eintrag aus Drive Table: XDPH
+	ld	a,h
+	or	l
+	jr	z,DrvIn1	; Eintrag 0 : kein Laufwerk
+	ldw	hl,(hl+25)	; sonst Init-Einsprung aus XDPH holen
+	ld	a,h
+	or	l
+	push	bc
+	call	nz,(hl)		; ggf. Treiber aufrufen
+	pop	bc
+DrvIn1:	pop	hl
+	inc	hl
+	inc	hl		; Zeiger auf n{chste XDPH-Adresse
+	djnz	DrvIni		; weiter bis alle Laufwerke bearbeitet
+
+; Feststellen des Bootlaufwerks (aus Setup) und verzweigen in die
+; entsprechende Boot-Routine. SignOn-Meldung wird vorbereitet und
+; ausgegeben.
+
+	iopage	boardp
+	ld	hl,SignOn	; Zeiger auf SignOn (f}r sp{ter)
+	in	a,(s$BDrv)	; Boot-Laufwerk aus Setup
+	cp	16
+	jp	z,BootEpr	; 'Q' angegeben: Booten aus EPROM
+	inc	a		; A..P jetzt 1..16 f}r FCB
+	cp	5		; --> Carry bei Boot von Diskette
+	jr	nc,NotDsk
+	out	(Mot_On),a	; dann Laufwerksmotor anschalten!
+NotDsk:	ld	(SysFCB),a	; Laufwerk im Boot-FCB speichern
+	add	a,'A'-1
+	ld	(BootDrv),a	; Laufwerksbezeichner in SignOn einsetzen
+	call	PMsg		; Signon-Meldung ausgeben
+
+; Booten des System-Files von einem Laufwerk (Diskette, MDrive, Festplatte).
+
+	ld	c,13
+	call	LDOS		; DOS 13 : Reset Disk System
+	ld	c,15
+	ld	de,SysFCB
+	call	LDOS		; DOS 15 : Open File
+	inc	a
+	jp	z,NoSys		; Fehlermeldung: kein System
+	ld	de,Header
+	call	SDMA		; DMA auf Header & Sektorpuffer
+	call	RdSeq		; ersten Sektor lesen
+	ld	de,SecBuf
+	call	SDMA		; DMA auf Sektorpuffer
+	call	RdSeq		; zweiten Sektor lesen (System-Meldung)
+	ld	hl,SecBuf
+	call	PMsg		; TPA-Meldung aus zweitem Sektor
+	ld	bc,(Header)	; Resident TopPage+1 in C, Length in B
+	call	Load		; Residenten Teil laden
+	ld	bc,(Header+2)	; Banked TopPage+1 in C, Length in B
+	call	Load		; gebankten Teil laden
+	ld	hl,(Header+4)	; Einsprungadresse f}r BOOT (im System!)
+	jp	GoSys		; ab geht's ins neu gebootete System...
+
+; Eigentlicher Lader. L{dt Teil des Systems in den Speicher.
+; TopPage+1 in C, Anzahl Pages in B.
+
+Load:	ld	d,c
+	ld	e,0		; Top-Adresse in DE
+	sla	b		; B verdoppeln (-> Anzahl Sektoren)
+LdLoop:	ld	hl,-128
+	add	hl,de
+	ex	de,hl		; Zieladresse um 128 niedriger
+	push	de
+	push	bc
+	call	SDMA		; DMA setzen
+	call	RdSeq		; Sektor lesen
+	pop	bc
+	pop	de
+	djnz	LdLoop		; alle angegebenen Sektoren lesen
+	ret
+
+; \fters ben|tigte LDOS-Funktionen: DMA setzen, Sequential Read.
+
+SDMA:	ld	c,26
+	jp	LDOS		; DOS 26 : Set DMA Adress
+
+RdSeq:	ld	c,20
+	ld	de,SysFCB
+	call	LDOS		; DOS 20 : Read Sequential
+	or	a		; Fehler ?
+	ret	z		; kein Fehler : RET
+				; Fehler: Meldung "kein System"
+
+; Kein System ladbar (nicht auf Laufwerk bzw. im EPROM vorhanden).
+; Fehlermeldung ausgeben und System anhalten.
+
+NoSys:	ld	hl,NotFnd
+	call	PMsg		; Meldung ausgeben
+	di
+	jr	$		; CPU stoppen
+
+; FCB zum Lesen des System-Files.
+
+sysfcb:	defb	0,'CPM3    SYS',0,0,0,0,0,0,0,0,0,0,0,0,0,0
+	defb	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+
+;*****************************************************************
+;**	Booten aus dem EPROM					**
+;*****************************************************************
+
+; Adre~definitionen (Ablage von CPM3.SYS im EPROM ab SysBase);
+
+ResTop	equ	SysBase		; Resident Top Page
+ResLen	equ	SysBase+1	; Resident Length (Pages)
+BnkTop	equ	SysBase+2	; Banked Top Page
+BnkLen	equ	SysBase+3	; Banked Length (Pages)
+Start	equ	SysBase+4	; Einsprungadresse ins System (BOOT)
+TpaMsg	equ	SysBase+80h	; Meldung }ber TPA-Gr|~e / Load Map
+SysBeg	equ	SysBase+100h	; Beginn des eig. Codes
+
+; Zun{chst entsprechende Meldung ausgeben.
+
+BootEpr:xor	a
+	ld	(BootFrm),a	; Abschlu~-Null in SignOn einsetzen
+	call	PMsg		; Signon-Meldung ausgeben
+	ld	hl,Eprom
+	call	PMsg		; Signon vervollst{ndigen: Boot aus EPROM
+	ld	a,(restop)	; CPM3.SYS im EPROM ?
+	or	a
+	jr	nz,NoSys	; Resident Top Page +1 nicht 00 : Fehler
+	ld	hl,TpaMsg
+	call	PMsg		; TPA-Meldung aus 2. "Sektor"
+
+; Betriebssystem aus dem EPROM booten. Dazu Records lesen und von oben
+; nach unten im Speicher ablegen.
+; Zun{chst residenten System-Teil im Common Memory.
+
+	ld	hl,(ResTop)	; H=RESLEN, L=RESTOP
+	dec	l		; --> Top Page +0
+	ld	d,l
+	ld	e,80h		; erste Ziel-Adresse in DE
+	ld	b,h
+	sla	b		; RESLEN verdoppeln (-> Anzahl Sektoren)
+	ld	hl,SysBeg	; Quelle: ab 3. "Sektor" CPM3.SYS
+LdLp1:	push	bc
+	ld	bc,128
+	ldir			; "Sektor lesen"
+	pop	bc
+	dec	d		; r}ckw{rts laden
+	djnz	LdLp1		; alle Sektoren lesen
+
+; Anschlie~end den gebankten Teil des Systems booten. Da der obere Bereich
+; von CPM3.SYS im EPROM bis in den Ladebereich des gebankten Systems reicht,
+; wird per DMA direkt aus dem EPROM gebootet.
+
+	ld	(SrcAdr),hl	; n{chste Startadresse in CPM3.SYS
+	ld	hl,(BnkTop)	; H=BNKLEN, L=BNKTOP
+	dec	l		; --> Top Page +0
+	ld	d,l
+	ld	e,80h		; erste Ziel-Adresse in DE
+	ld	b,h
+	sla	b		; BNKLEN verdoppeln (-> Anzahl Sektoren)
+LdLp2:	ld	(DstAdr),de	; Zieladresse einsetzen
+	ld	hl,SysDMA
+	push	bc
+	call	DmaSet		; Record aus EPROM booten
+	pop	bc
+	ld	hl,(SrcAdr)
+	lda	hl,(hl++80h)
+	ld	(SrcAdr),hl	; Quelle + 80h
+	ld	hl,(DstAdr)
+	lda	hl,(hl--80h)
+	ex	de,hl		; Ziel - 80h
+	djnz	LdLp2
+	ld	hl,(Start)
+	jp	GoSys		; GlobVar setzen, dann ins System springen
+
+; DMA-Parameterblock f}r Booten des gebankten Systemteils aus EPROM.
+
+SysDMA:	defb	dal3		; DMA 3
+DstAdr:	defw	0		; Zialadresse
+	defb	81h		; Dest 81xxxxh (System-Bank)
+SrcAdr:	defw	0		; Quelle
+	defb	0		; Src 00xxxxh (EPROM)
+	defw	40h		; Length 40h words = 80h Bytes (1 Record)
+	defw	1000001100000000b ; descriptor MEM --> MEM, words
+
+;***********************************************************************
+;**                Globale Parameter f}r BOOT setzen                  **
+;***********************************************************************
+
+; Zun{chst I/O-Redirection-Vektoren berechnen und ablegen.
+
+GoSys:	push	hl		; Einsprungadresse BOOT auf Stack
+	iopage	boardp
+	ld	bc,500h+s$ci	; B=5 (Counter), C= I/O Adresse (Setup)
+	ld	hl,globvar	; Zeiger auf I/O Redirection Vektoren
+cilp2:	in	a,(c)		; Device-Nummer in A
+	ld	de,0000h	; Vektor wird in DE aufgebaut
+	scf
+cilp3:	rr	d
+	rr	e		; sonst DE 1 Bit nach rechts schieben
+	dec	a
+	jp	p,cilp3		; bis Vektor fertig ist
+	ldw	(hl),de		; Vektor speichern
+	inc	hl
+	inc	hl		; Zeiger +2
+	inc	c
+	djnz	cilp2		; f}r alle 5 Devices
+
+; Dann Drive Search Chain aus Setup-RAM holen.
+
+	ld	bc,400h+s$chain-1 ; Counter & I/O-Adresse f}r Search Chain
+chnlp:	inc	c
+	ini			; Drive Search Chain Werte aus Setup
+	jr	nz,chnlp
+
+; Mit Zeiger auf globale Parameter in IX in das frisch gebootete System
+; einspringen (BOOT-Entry im BIOS).
+
+	ld	ix,GlobVar	; Zeiger auf Parameter
+	ret			; --> BOOT
+
+;***********************************************************************
+;**           MMU-Tabellen f}r die verschiedenen Operationen          **
+;***********************************************************************
+
+; MMU-Tabelle f}r Bank 1 im User-Mode und Bank 0 im System-Mode.
+
+MmuTab:	defw	800Ah,801Ah,802Ah,803Ah,804Ah,805Ah,806Ah,807Ah
+	defw	808Ah,809Ah,80AAh,80BAh,80CAh,80DAh,80EAh,80FAh
+	defw	810Ah,811Ah,812Ah,813Ah,814Ah,815Ah,816Ah,817Ah
+	defw	818Ah,819Ah,81AAh,81BAh,81CAh,81DAh,81EAh,80FAh
+
+; MMU-Tabelle f}r RAM-Test: 0000-7FFF im EPROM (damit Enable erlaubt).
+
+TstTab:	defw	000Ah,001Ah,002Ah,003Ah,004Ah,005Ah,006Ah,007Ah
+
+;***********************************************************************
+;**                         R A M - T E S T                           **
+;***********************************************************************
+
+; RAMTST testet das gesamte RAM ab phys. Adresse 800000h.
+; Wird innerhalb der unteren 512k ein Fehler festgestellt, wird die Fehler-
+; meldung 'RAM-Test failed' ausgegeben und der Boot-Vorgang abgebrochen.
+; Sind die unteren 512k in Ordnung, wird der Test entsprechend der Speicher-
+; gr|~e fortgesetzt. RAM-Test zerst|rungsfrei !
+; Der RAM-Test l{uft vollst{ndig im EPROM und benutzt kein RAM.
+
+RamTst:	ld	hl,TstMsg	; Anfangs- und Signon-Meldung
+	ld	iy,Test0	; (Return-Adresse)
+	jp	PutMsg		; Meldung ausgeben
+Test0:	ld	d,0		; Z{hler f}r getestete 32k-Blocks
+
+; Gro~e Testschleife. Zun{chst 32k-Block in Speicher 8000-FFFF einblenden.
+
+testlp:	iopage	mmup
+	ld	a,18h
+	out	(pdr),a		; PDR Pointer --> System Mode ab 8000h
+	ld	a,d
+	multu	a,128		; HL = Wert f}r Start-PDR
+	lda	hl,(hl++800Ah)	; konstante Steuerbits dazu
+	ld	bc,800h+bmp	; 8 Werte --> Block-Move-Port
+test1:	outw	(c),hl
+	lda	hl,(hl++0010h)	; n{chsten 4k-Block adressieren
+	djnz	test1		; ganzen 32k-Bereich einblenden
+
+; Eigentlicher Speichertest. Schreibversuch mit Komplement des
+; Originalinhalts. Anschlie~end Restaurierung und nochmal Vergleich.
+
+	ld	hl,8000h	; Startadresse f}r Test
+test2:	ld	a,(hl)		; Originalwert aus Speicher
+	cpl
+	ld	(hl),a		; Komplement schreiben
+	cp	(hl)		; erfolgreich ?
+	cpl
+	ld	(hl),a		; wieder Original Schreiben
+	jr	nz,ramerr	; Komplement verschieden gewesen: Fehler
+	cp	(hl)		; wieder Vergleich
+	jr	nz,ramerr	; verschieden: Fehler
+	inc	hl		; n{chste Adresse
+ inc hl
+ inc hl 			; jede 3. Adresse reicht
+	bit	7,h
+	jr	nz,test2	; weiter bis HL=0, dann Block fertig
+
+; 32k-Block erfolgreich getestet. Meldung }ber bisherige Kapazit{t ausgeben.
+
+	outchr	cr		; CR ausgeben --> Zeilenanfang
+	ld	a,d		; Blocknummer nach A
+	exx			; Register wechseln, damit D unbesch{digt
+	inc	a
+	multu	a,32		; bisher getesteter Speicher in KB --> HL
+
+	ld	b,4		; 4 Stellen ausgeben
+	ld	ix,1000		; erster Divisor
+test3:	ld	de,0
+	divuw	dehl,ix		; HL durch Zehnerpotenz teilen
+	ld	a,l
+	add	a,'0'		; Quotient --> ASCII-Ziffer
+	ld	l,a
+	outchr	l		; Ziffer ausgeben
+	lda	hl,(ix++0)	; Divisor nach HL
+	divu	hl,10
+	ld	ixl,a
+	ld	ixh,0		; durch 10 geteilt wieder nach IX
+	ex	de,hl		; Rest von DE --> HL	
+	djnz	test3		; weiter bis alle 4 Ziffern ausgegeben
+	exx			; wieder auf Original-Register zur}ck
+
+; Schleife 'endlos' durchlaufen (bis Abbruch mit Fehler).
+
+	inc	d		; Blockz{hler erh|hen
+	jp	nz,testlp	; bis zum ]berlauf des Z{hlers (8 MB)
+
+; Fehler im RAM gefunden: Je nach Position Speicherung der RAM-Gr|~e oder
+; Abbruch mit Fehlermeldung. Alles ohne RAM!
+
+ramerr:	ld	a,d		; Anzahl getesteter 32k-Blocks
+	rra
+	rra
+	rra
+	rra
+	and	0Fh		; /16 = Anzahl 512k-Blocks
+	ld	hl,fatmsg
+	ld	iy,msgret
+	jr	z,putmsg	; Ergebnis 0 : Fehlermeldung und Ende
+	iopage	boardp
+	out	(s$mem),a	; Blockanzahl speichern (--> Setup)
+	ld	hl,okmsg
+	ld	iy,doboot	; sonst Meldung und booten
+
+; Ausgabe eines Textes ab Adresse (HL), ohne RAM-Benutzung. RET nach (IY).
+
+putmsg:	ld	a,(hl)		; Zeichen holen
+	or	a
+	jr	z,msgret	; NUL Character : Ende
+	outchr	(hl)		; sonst Zeichen ausgeben
+	inc	hl
+	jr	putmsg		; weitermachen bis NUL
+msgret:	jp	(iy)		; RET }ber (IY) ohne RAM
+
+;*****************************************************************
+;**	DMA-Ansteuerung						**
+;*****************************************************************
+
+; Physikalische DMA-Adresse ermitteln (in AHL).
+
+ClcDMA::ld	hl,(DMA)	; logische Adresse = phys. Adresse in Bank
+	ld	a,0EFh
+	cp	h		; CY wenn in Common-Bereich (ab F000)
+	sbc	a,6Eh		; 81h (banked) bzw. 80h (Common)
+	ret
+
+; DMA-Register mit den Werten ab (HL) laden. Parameterblock:
+; 8 Bit DMA-Adr, 24 Bit Dest, 24 Bit Src, 16 Bit Length, 16 Bit Control.
+; R}ckkehr erstmalig nach SETMMU, nach Booten als normales UP.
+
+DmaSet::ld	b,l
+	iopage	DMAP
+	ld	l,b
+	ld	c,(hl)		; Adresse DMA-Register
+	inc	hl
+	outiw			; DAL
+	inc	c
+	dec	hl
+	outiw			; DAH
+	inc	c
+	outiw			; SAL
+	inc	c
+	dec	hl
+	outiw			; SAH
+	inc	c
+	outiw			; Length
+	inc	c
+	outiw			; Descriptor
+DmaRet:	jp	SetMMU		; R}cksprung ohne Stack, sp{ter 'RET'
+
+;*****************************************************************
+;**	Konsolen-I/O (Rest in Kernel)				**
+;*****************************************************************
+
+; Konsolen-Eingabe. Zeichen in A.
+
+ConIn::	push	bc
+	push	de
+	push	hl		; alle Register retten
+ConIn1:	InChar			; Makro
+	jr	c,ConIn1	; warten auf Eingabe
+	pop	hl
+	pop	de
+	pop	bc		; Register restaurieren
+	ret
+
+;*****************************************************************
+;**	Variablen und Texte					**
+;*****************************************************************
+
+; Puffer f}r ersten Record des System-Files. Enth{lt Informationen
+; }ber Zieladresse/L{nge des Systems (resident bzw. gebankt) und 
+; Einsprungadresse. Es werden nur die ersten 6 Byte genutzt, der
+; Rest wird beim n{chsten Lesen (zweiter Record: TPA-Meldung)
+; nach SecBuf }berschrieben.
+
+Header:	defs	6		;*** Diese Reihenfolge darf nicht
+SecBuf:	defs	128		;*** ge{ndert werden!!!
+
+ChkSum:	defs	2		; Zwischenspeicher f}r EPROM-Pr}fsumme
+
+	defs	128
+Stack	equ	$		; Stack beim Booten
+
+; Globale Parameter}bergabe an BIOS.
+; Zeiger auf diesen Parameterblock wird in IX ans BIOS (BOOT) }bergeben.
+
+GlobVar:defs	10		; 5 Word: I/O Redirection Vektoren f}r SCB
+	defs	4		; 4 Byte: Drive Search Chain f}r SCB
+
+; Texte und Meldungen:
+
+    if deutsch
+TstMsg:	defm	CR,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF
+	defm	LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF
+	defm	'Kaltstart-Programm V1.13 TR 950314',CR,LF
+	defz	'Dr}cke DEL f}r SETUP.',CR,LF
+FatMsg:	defz	CR,LF,'Fataler Fehler: nicht genug RAM'
+OkMsg:	defz	'k RAM ok'
+SignOn:	defm	CR,LF,LF,'CP/M-3 Lader V1.13',CR,LF
+	defm	'Lade System von '
+BootFrm:defm	'Laufwerk '
+BootDrv:defz	'X:',CR,LF
+Eprom:	defz	'EPROM',CR,LF
+NotFnd:	defz	BEL,'Fehler: System nicht ladbar',CR,LF
+    endif
+
+    if english
+TstMsg:	defm	CR,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF
+	defm	LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF
+	defm	'Cold Loader Program V1.13 TR 950314',CR,LF
+	defz	'Press DEL to run SETUP.',CR,LF
+FatMsg:	defz	CR,LF,'Fatal Error: not enough RAM'
+OkMsg:	defz	'k RAM ok'
+SignOn:	defm	CR,LF,LF,'CP/M-3 Loader V1.13',CR,LF
+	defm	'Booting system file from '
+BootFrm:defm	'drive '
+BootDrv:defz	'X:',CR,LF
+Eprom:	defz	'EPROM',CR,LF
+NotFnd:	defz	BEL,'Error: system not loadable',CR,LF
+    endif
+
+	end
+

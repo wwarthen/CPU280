@@ -1,0 +1,61 @@
+; MAKE-File f}r Erzeugen des CPU280-BIOS und Systems, TR 950122
+;
+; Zun{chst grunds{tzlich SYSTEM nach OPTIONS kopieren.
+;
+options.lib :
+  pip options.lib=system.lib
+;
+; Einzelne Module konvertieren und assemblieren
+;
+kernel.rel : kernel.280 z280equ.lib cpu280.lib system.lib
+  pre280 kernel
+  slr180 kernel/mu
+  era kernel.mac
+intrpt.rel : intrpt.280 z280equ.lib cpu280.lib system.lib
+  pre280 intrpt
+  slr180 intrpt/mu
+  era intrpt.mac
+boot.rel : boot.280 z280equ.lib cpu280.lib system.lib
+  pre280 boot
+  slr180 boot/mu
+  era boot.mac
+clock.rel : clock.280 z280equ.lib cpu280.lib system.lib
+  pre280 clock
+  slr180 clock/mu
+  era clock.mac
+chario.rel : chario.280 z280equ.lib cpu280.lib system.lib
+  pre280 chario
+  slr180 chario/mu
+  era chario.mac
+diskio.rel : diskio.280 z280equ.lib cpu280.lib system.lib
+  pre280 diskio
+  slr180 diskio/mu
+  era diskio.mac
+halbl.rel : halbl.280 z280equ.lib cpu280.lib system.lib
+  pre280 halbl
+  slr180 halbl/mu
+  era halbl.mac
+hard.rel : hard.280 z280equ.lib cpu280.lib system.lib
+  pre280 hard
+  slr180 hard/mu
+  era hard.mac
+form.rel : form.280 z280equ.lib cpu280.lib system.lib
+  pre280 form
+  slr180 form/mu
+  era form.mac
+scb.rel : scb.280
+  ren scb.mac scb.280
+  slr180 scb/mu
+  ren scb.280 scb.mac
+;
+; SPR-Datei linken
+;
+bnkbios3.spr : kernel.rel intrpt.rel boot.rel clock.rel chario.rel \
+               diskio.rel halbl.rel hard.rel form.rel scb.rel
+  link bnkbios3[b]=kernel,intrpt,boot,clock,chario,diskio,halbl,hard,form,scb
+;
+; Systemdatei erzeugen
+;
+cpm3.sys : bnkbdos3.spr resbdos3.spr bnkbios3.spr gencpm.dat
+  gencpm auto
+

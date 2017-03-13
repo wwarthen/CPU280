@@ -1,0 +1,117 @@
+; 041190 Tilmann Reh
+; Makro-Datei f}r Character-I/O innerhalb CPU280-Boot-Loader
+; Alle Konsolenoperationen benutzen diese Makros, so da~ Anpassung
+; an andere Terminals EINZIG HIER erfolgen mu~.
+
+; Diese Version steuert die CPU-interne serielle Schnittstelle an.
+; Baudratengenerator ist CT1. Default-Einstellung:
+
+def1h	equ	11000100b	; Default 8+n+1, kein Handshake
+def1bd	equ	14		; Default 9600 Baud
+
+;***********************************************************************
+;**           Initialisierung der Konsolenschnittstelle               **
+;***********************************************************************
+
+; Eingang mit CPU-Taktfaktor (x 614400 Hz) in B.
+; Alle Register au~er SP d}rfen verwendet werden.
+
+; noch fest auf 19200 Baud. --> Setup!
+
+chrnit:	macro
+	local	ct1tab,exit
+	iopage	boardp
+	out	(rts1_en),a	; RTS1 := active
+	in	a,(s$c1bd)
+	add	a,a
+	;exts	a		; 2* Baud in HL
+	DEFB	0EDh,064h
+	in	a,(s$c1h)
+	;ldw	hl,(hl++ct1tab-2) ; normierter Teilerfaktor (*256) in HL
+	DEFB	0EDh,03Ch
+	DEFW	ct1tab-2
+	ld	c,0		; CPU-Frequenz *256 nach BC
+	;multuw	hl,bc		; Ergebnis (/65536) in DE
+	DEFB	0EDh,0C3h
+	ld	b,a		; Hardware-Parameter nach B
+	iopage	ctp
+	ex	de,hl		; Vorteilerwert --> HL
+	dec	hl		; -1 f}r Time Constant Register
+	ld	c,tc1
+	;outw	(c),hl		; neue 'Time Constant' f}r CT1
+	DEFB	0EDh,0BFh
+	ld	a,10001000b
+	out	(cr1),a		; CT1: Cont. Timer, Output
+	ld	a,11100000b
+	out	(cs1),a		; CT1 Enable
+	ld	a,b		; Hardware-Parameter
+	rrca
+	rrca			; Bits 7..4 enthalten jetzt Bits 1076
+	rept	4
+	rla
+	rr	d
+	endm			; D(7..4) enth{lt Bits 6701
+	ld	a,d
+	and	0F0h
+	or	00001010b	; Konstanten dazu
+	out	(ucr),a		; UART Control Register
+	ld	a,b
+	and	00001000b	; Bit 3 isolieren (Stopbits)
+	rlca			; --> Bit 4
+	or	10000001b
+	out	(tcs),a		; Transmitter Control
+	ld	a,10000000b
+	out	(rcs),a		; Receiver Control
+	in	a,(rdr)
+	in	a,(rdr)		; RX leersaugen
+	jr	exit
+
+ct1tab:	defw	64,32768,22342,18273,16384,8192,4096,2048,1366,1024,683,512,342,256,128
+
+exit:	endm
+
+;***********************************************************************
+;**                 Zeichenausgabe an Konsole                         **
+;***********************************************************************
+
+; Die Erstregister d}rfen nicht ver{ndert werden, es darf kein RAM benutzt
+; werden. Benutzt werden d}rfen: AF und die Zweitregister BC' und HL'.
+
+outchr	macro	data
+	local	outc1,outc2,outc3
+	exx			; -> Zweitregister
+	iopage	boardp
+	in	a,(s$c1h)	; Hardware-Parameter CRT1
+	bit	5,a
+	jr	z,outc2		; kein Handshake: CTS nicht pr}fen
+outc1:	in	a,(gpi)
+	bit	b$cts1,a
+	jr	nz,outc1	; warten auf CTS
+outc2:	iopage	uartp
+outc3:	in	a,(tcs)
+	rra
+	jr	nc,outc3	; warten auf BE
+	exx			; -> Erstregister
+	ld	a,data
+	out	(tdr),a		; Zeichen ausgeben
+	endm
+
+;***********************************************************************
+;**                 Zeicheneingabe von Konsole                        **
+;***********************************************************************
+
+; Makro zum Pr}fen auf empfangenes Zeichen (und einlesen desselben).
+; Antwort mit Zeichen in A oder CY gesetzt.
+; Keine Verwendungseinschr{nkungen.
+
+inchar:	macro			;; ':' wegen PRE280 Interpretationsfehler
+	local	exit
+	iopage	uartp
+	in	a,(rcs)		; UART Status Register
+	bit	4,a		; Character available ?
+	scf
+	jr	z,exit		; nein: Exit mit CY gesetzt
+	in	a,(rdr)		; Zeichen lesen
+	or	a		; CY l|schen
+exit:	endm
+

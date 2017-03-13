@@ -1,0 +1,622 @@
+	title	'CHARIO Subroutines of CP/M-3 BIOS'	
+	.z280
+	.xlist
+	maclib	Z280EQU
+	maclib	CPU280
+	maclib	OPTIONS
+	.list
+
+; 950131 Tilmann Reh
+
+	if not loader	; gesamter Code nur f}r System-BIOS
+			; (nur DevTbl f}r Lader)
+
+CtlC	equ	'C'-40h		; ^C: Break-Character
+ctlq	equ	'Q'-40h		; ^Q: XON
+ctls	equ	'S'-40h		; ^S: XOFF
+
+;***********************************************************************
+;**           Port-Definitionen bei verschiedenen Optionen            **
+;***********************************************************************
+
+; Da der eigentliche Treiber bis auf die Initialisierung tabellen-
+; gesteuert arbeitet, werden keine Spezialroutinen f}r jedes Device
+; ben|tigt. Die Anpassung verschiedener I/O-Devices beschr{nkt sich
+; daher normalerweise auf die Deklaration der Portadressen und die
+; Eintr{ge in die Tabellen (am Modulende).
+
+; XON/XOFF-Protokoll noch nicht }berarbeitet (besser nicht benutzen)...
+
+; Grunds{tzlich werden statt 50 Baud (wenn m|glich) 38400 Baud erzeugt.
+
+;***********************************************************************
+;**      On-Board I/O Devices: CPU-UART (CRT1) und TPUART (CRT2)      **
+;***********************************************************************
+
+; Der CPU-interne UART (Device 0, CRT1) kann die Baudraten }ber 9600 Baud
+; nur erreichen, wenn die Taktfrequenz ein Vielfaches von 1.2288 MHz (19200)
+; bzw. 2.4576 MHz (38400) ist. Die Baudraten 1800, 3600 und 7200 Baud k|nnen
+; fehlerbehaftet sein. Es werden nur 7 oder 8 Datenbits und 1 oder 2 Stop-
+; bits unterst}tzt.
+
+; Der TPUART (Device 1, CRT2) erzeugt 50 Baud statt 75 Baud. Auch hier k|nnen
+; nur 7/8 Datenbits und 1/2 Stopbits bearbeitet werden.
+
+NumDev	aset	2		; On-Board 2 Schnittstellen (CPU/TPUART)
+
+;***********************************************************************
+;**           Option: REH ECB-I/O/CLK (V24AR,V24AT,V24B)              **
+;***********************************************************************
+
+; Bei den seriellen Schnittstellen der ECB-I/O/CLK (V24A und V24B) werden
+; die Baudraten 1800, 3600 and 7200 nur n{herungsweise erzeugt (Fehler max.
+; 3%). V24AR und V24AT haben nur dann die angegebenen Baudraten, wenn BEIDE
+; Raten in 75..150 Baud oder BEIDE in 300..38400 Baud liegen. Parity und
+; Stopbits gelten f}r V24AR und V24AT gemeinsam und werden von V24AT
+; }bernommen. Auto Enables wird von V24AR }bernommen, gilt aber
+; insbesondere f}r V24AT.
+
+	if	ioclk
+IOCBase	equ	20h		; Basisadresse
+IOCBdAR	equ	IOCBase+8	; CTC-Kanal Baudrate V24A-Receiver
+IOCBdAT	equ	IOCBase+9	; CTC-Kanal Baudrate V24A-Transmitter
+IOCBdB	equ	IOCBase+10	; CTC-Kanal Baudrate V24B
+;SysCTC	equ	IOCBase+11	; CTC-Kanal f}r 'System Use'
+V24AD	equ	IOCBase+12	; Datenport SIO V24A
+V24BD	equ	IOCBase+13	; Datenport SIO V24B
+V24AC	equ	IOCBase+14	; Controlport SIO V24A
+V24BC	equ	IOCBase+15	; Controlport SIO V24B
+NumDev	aset	NumDev+3	; Drei weitere Schnittstellen (V24AR/T,V24B)
+	endif
+
+;***********************************************************************
+;**           Option: Centronics-Druckerspooler (SPOOL)               **
+;***********************************************************************
+
+	if	spool
+SplBase	equ	50h
+SplSta	equ	SplBase		; Spooler-Statusport (BUSY-Bit)
+SplDat	equ	SplBase+1	; Spooler-Datenport
+NumDev	aset	NumDev+1	; Eine weitere Schnittstelle (SPOOL)
+	endif
+
+;***********************************************************************
+;**         Option: REHdesign HGT, Text/Grafik-Terminal (HGT)         **
+;***********************************************************************
+
+	if	hgt
+HgtBase	equ	60h		; Basisadresse
+HgtDat	equ	HgtBase		; Datenport HGT
+HgtSta	equ	HgtBase+1	; Statusport HGT
+NumDev	aset	NumDev+1	; Eine weitere Schnittstelle (HGT)
+	endif
+
+;***********************************************************************
+;**        Option: REHdesign IDE-Interface, Centronics (CENTR)        **
+;***********************************************************************
+
+	if	ide
+Centr	equ	85h		; Portadresse IDE-Centronics (R/W)
+NumDev	aset	NumDev+1	; Eine weitere Schnittstelle (CENTR)
+	endif
+
+;***********************************************************************
+;**        Initialisierungen der Character-I/O-Schnittstellen         **
+;***********************************************************************
+
+	dseg			; alles gebankt (}ber SC aufgerufen)
+
+; Gemeinsame Routine: auch Initialisierung tabellengesteuert...
+
+DevIni::ld	a,c		; Device Code
+	cp	NumDev		; zul{ssig ?
+	ret	nc		; Code zu hoch : RETURN ohne Action
+	add	a,a
+	exts	a		; verdoppelt nach HL
+	ldw	hl,(hl++DviTbl)	; Adresse der Initialisierungsroutine
+	push	hl		; ...auf Stack
+	multu	a,4		; 8x dev in HL (H=0)
+	ld	b,h		; Device in BC
+	ld	a,(hl++CTbl+7)
+	ld	e,a		; Baudratencode in E
+	ld	hl,CTbl-1
+	subw	hl,bc		; Zeiger auf phys. Kommunikationsparameter
+	ld	a,(hl)		; Parameter in A
+DviRet:	ret			; --> Init (Parm in A, Dev in BC, Baud in E)
+
+DviTbl:	defw	CPUIni,TPUIni	; Grundausstattung CPU/TPUART
+    if ioclk
+	defw	IOCIni,IOCIni,IOCIni ; ECB-I/O/CLK: drei SIO-Schnittstellen
+    endif
+    if spool
+	defw	DviRet		; Spooler-Centronics keine Initialisierung
+    endif
+    if hgt
+	defw	DviRet		; HGT-Schnittstelle keine Initialisierung
+    endif
+    if ide
+	defw	DviRet		; IDE-Centronics keine Initialisierung
+    endif
+
+; Initialisierung des CPU-internen UART (Device 0):
+
+CPUIni:	ld	b,a		; Hardware-Parameter nach B
+	iopage	BoardP
+	out	(RTS1_En),a	; RTS1 := active
+	in	a,(CPUFreq)
+	ld	d,a		; CPU-Frequenz (x 614400 Hz) nach D
+	iopage	UartP
+	ld	l,e
+	ld	h,0		; Baud nach HL
+	ld	e,h		; CPU-Frequenz *256 nach DE
+	add	hl,hl
+	ldw	hl,(hl++CT1Tab-2) ; normierter Teilerfaktor (*256) in HL
+	multuw	hl,de		; Ergebnis (/65536) in DE
+	ex	de,hl		; --> HL
+	dec	hl		; -1 f}r Time Constant Register
+	ld	c,TC1
+	outw	(c),hl		; neue 'Time Constant' f}r CT1
+	ld	a,10001000b
+	out	(CR1),a		; CT1: Cont. Timer, Output
+	ld	a,11100000b
+	out	(CS1),a		; CT1 Enable
+	ld	a,b
+	and	00001000b	; Parameter-Bit 3 isolieren
+	rlca			; --> Bit 4
+	or	10000001b
+	out	(TCS),a		; Transmitter Control
+	ld	a,10000000b
+	out	(RCS),a		; Receiver Control
+	bit	5,b		; Auto Enables (CTS) ?
+	ld	a,0C9h		; RET Opcode
+	jr	z,Dvi0_1	; kein Auto-Enables: CTS nicht pr}fen
+	xor	a		; sonst NOP Opcode
+Dvi0_1:	ld	(OSt0),a	; ersten Befehl von OST0 entspr. patchen
+	ld	a,b		; Parameter
+	rrca			; 07654321 cy=0
+	rrca			; 10765432 cy=1
+	rla			; 0765432x cy=1
+	rr	b
+	rla			; 765432xx cy=0
+	rr	b
+	rla			; 65432xxx cy=7
+	rr	b
+	rla			; 5432xxxx cy=6
+	ld	a,b
+	rra			; A7..4 enth{lt Bits 6701
+	and	0F0h
+	or	00001010b	; Konstanten dazu
+	out	(UCR),a		; UART Control Register
+	ret
+
+CT1Tab:	defw	64,32768,22342,18273,16384,8192,4096	; 38400; 75..600 Bd
+	defw	2048,1366,1024,683,512,342,256,128	; 1200..19200 Bd
+
+; Initialisierung des Onboard-TPUART (Device 1):
+
+TPUIni:	ld	b,a		; Parameter nach B
+	iopage	BoardP
+	ld	a,11011010b	; TPUART Reset, RX/TX Disable, CP2 aktiv
+	out	(UartCtl),a
+	res	7,a
+	out	(UartCtl),a	; TPUART r}cksetzen
+	ld	a,b
+	and	00101011b	; Bits 0,1,3,5
+	xor	00100010b	; Bits 1 und 5 invertieren, CY=0
+	rla
+	rla
+	rla
+	rla			; nach Bits 4,5,7,0 schieben
+	ld	c,a		; erstmal retten
+	ld	a,b
+	and	10000000b	; Bit 7 isolieren
+	rrca			; --> Bit 6
+	or	c		; Alle Bits zusammenfassen
+	or	00000100b	; Bits 1,2,3 = 010 konstant dazu
+	out	(UartDat),a	; TPUART MODE CONTROL
+	xor	a
+	out	(UartDat),a	; TPUART INTERRUPT MASK
+	ld	a,e
+	dec	a		; Baudrate 0..14
+	cp	9
+	sbc	a,0		; --> -1..7, 9..14
+	and	0Fh		; nur untere 4 Bit
+	out	(UartDat),a	; TPUART BAUD RATE SELECT REGISTER
+	ld	a,01100110b
+	out	(UartCtl),a	; RX/TX Enable, CP2 aktiv
+	ret
+
+; Initialisierung der SIO auf ECB-I/O/CLK (Devices 2,3,4) :
+; Geht in dieser Form nur mit diesen Device-Nummern!
+
+	if	ioclk
+
+IOCIni:	and	0E0h		; nur Bitbreite/ Auto Enables
+	or	1		; RX Enable
+	ld	(Sio3),a	; in SIO-Register 3
+	ld	a,(hl)
+	and	0C0h		; nur Bitbreite
+	rrca			; richtig positionieren
+	or	8Ah		; DTR, RTS, TX Enable
+	ld	(Sio5),a	; in SIO-Register 5
+	ld	a,(hl)
+	and	0Fh		; untere 4 Bit f}r SIO-Reg4, in A
+	ld	l,e
+	ld	h,0		; Baud nach HL
+	or	a,(hl++SioDiv-1) ; SIO-Vorteilermaske dazu
+	ld	(Sio4),a	; SIO-Register 4 komplett
+	ld	a,(hl++CtcTab-1) ; Zeitkonstante f}r CTC 1..256 (0=256)
+	ld	(Speed),a	; in Init-Tabelle einsetzen
+	ld	hl,SioCtc-4
+	add	hl,bc		; (BC noch Device 2..4)
+	add	hl,bc		; Zeiger auf SIO/CTC-Port-Tabelle
+	ld	a,(hl)
+	ld	(SioRx),a	; SIO-Controlport setzen
+	ld	(SioTx),a	; f}r RX- und TX-Initialisierung
+	inc	hl
+	ld	a,(hl)
+	ld	(CtcPrt),a	; CTC-Port setzen
+	ld	a,c		;!!! Device Code nach A
+	iopage	BusP		; I/O/CLK liegt am ECB-Bus
+	ld	hl,RxTab	; Tabelle f}r RX-Initialisierung
+	cp	3		;!!!
+	call	nz,StrIni	; Receiver der SIO init. (au~er V24AT)
+	ld	hl,TxTab	; Tabelle f}r TX-Initialisierung
+	cp	2		;!!!
+	call	nz,StrIni	; SIO-Transmitter init. (au~er V24AR)
+	ld	hl,CtiTab	; Zeiger auf CTC-Init-Tabelle
+
+StrIni:	ld	b,(hl)		; Anzahl Bytes aus Init-Tabelle
+	inc	hl
+	ld	c,(hl)		; Portadresse f}r OTIR
+	inc	hl
+	otir			; Bytes ausgeben
+	ret
+
+CtcTab:	defb	2,0,175,143,128,0,128		; CTC-Werte 50..600 Bd
+	defb	64,43,32,21,16,11,8,4		; CTC-Werte 1200..19200 Bd
+SioDiv:	defb	40h,0C0h,0C0h,0C0h,0C0h,40h,40h ; SIO-Vorteiler 50..600 Bd
+	defb	40h,40h,40h,40h,40h,40h,40h,40h	; SIO-Vorteiler 1200..19200 Bd
+
+SioCtc:	defb	V24AC,IOCBdAR	; Adressen V24AR
+	defb	V24AC,IOCBdAT	; Adressen V24AT
+	defb	V24BC,IOCBdB	; Adressen V24B
+
+RxTab:	defb	3		; 3 Bytes an SIO
+SioRx:	defs	1		; Portadresse SIO-Control
+	defb	0,3		; Sicherheit / Pointer
+Sio3:	defs	1		; SIO-Register 3 : RX Char / Auto Enables
+
+TxTab:	defb	5		; 5 Bytes an SIO
+SioTx:	defs	1		; Portadresse SIO-Control
+	defb	0,4		; Sicherheit / Pointer
+Sio4:	defs	1		; SIO-Register 4 : Parity, Stopbits, Clocks
+	defb	5		; Pointer
+Sio5:	defs	1		; SIO-Register 5 : TX Char / DTR,RTS
+
+CtiTab:	defb	3		; 3 Bytes an CTC
+CtcPrt:	defs	1		; Portadresse des CTC
+	defb	41h,47h		; Sicherheit / Mode Control
+Speed:	defs	1		; CTC Time Constant
+
+	endif
+
+;***********************************************************************
+;**   Ausgabe-Routinen aller logischen Character-I/O-Schnittstellen   **
+;***********************************************************************
+
+List::	ld	hl,(@LOVec)	; LISTER OUT
+	jr 	OutScn
+
+AuxOut::ld	hl,(@AOVec)	; AUXILIARY OUT
+	jr	OutScn
+
+ConOut::ld	hl,(@COVec)	; CONSOLE OUT
+
+OutScn:	ld	b,0		; anfangen mit Device 0
+	ld	e,c		; Zeichen nach E
+OutSc1:	add	hl,hl		; oberstes Vektor-Bit ausschieben
+	call	c,COut		; Device aktiv: Zeichen ausgeben
+	inc	b		; n{chstes Device
+	ld	a,h
+	or	l
+	jr	nz,OutSc1	; weitere zu bedienen ?
+	ret
+
+COut:	call	CoStat		; Ausgabestatus pr}fen
+	jr	z,COut		; warten bis Ausgabe m|glich
+	ld	c,(ix+4)	; Ausgabeport-Adresse
+	out	(c),e		; Zeichen ausgeben
+	ret
+
+;***********************************************************************
+;**    Ausgabe-Status aller logischen Character-I/O-Schnittstellen    **
+;***********************************************************************
+
+ListSt::ld	hl,(@LOVec)	; LIST-OUT-STATUS
+	jr	OStScn
+
+AuxOSt::ld	hl,(@AOVec)	; AUX-OUT-STATUS
+	jr	OStScn
+
+ConOSt::ld	hl,(@COVec)	; CON-OUT-STATUS
+
+OStScn:	ld	b,0		; anfangen mit Device 0
+OStSc1:	or	0FFh		; Z=0
+	add	hl,hl
+	call	c,CoStat	; Device aktiviert: Status lesen
+	ret	z		; mind. 1 Device "not ready" --> RET mit A=0
+	inc	b		; Device + 1
+	ld	a,h
+	or	l		; weitere ?
+	jr	nz,OStSc1
+	dec	a		; alle bereit:
+	ret			; RET mit A=FF
+
+; Eigentliche Statusabfrage incl. Software-Handshake.
+; Return mit A=0, Z=1 wenn Ger{t nicht bereit (sonst A=FF, Z=0).
+; Register BDEHL unver{ndert.
+
+CoStat:	push	hl
+	ld	a,8
+	multu	a,b		; HL = 8* Device
+	ld	a,(hl++CTbl+6)	; Mode-Byte des gew{hlten Device
+	and	XonXoff		; XON/XOFF enable ?
+	jr	z,CoSt0		; Nein: Status direkt von Hardware
+	ld	a,b
+	ld	hl,XoffList
+	add	hl,a		; Zeiger auf XON Flag des Device
+	call	CiSt		; empfangenes Zeichen da ?
+	ld	a,(hl)		; bisheriges Flag
+	call	nz,Cin		; Flag oder Zeichen in A
+	cp	ctlq
+	jr	nz,notq		; bei ^Q (XON) ...
+	ld	a,0FFh		; Flag : ready
+notq:	cp	ctls
+	jr	nz,nots		; bei ^S (XOFF) ...
+	xor	a		; Flag : not ready
+nots:	ld	(hl),a		; Flag aktualisieren bzw. Zeichen speichern
+	call	CoSt		; aktueller Output-Status
+	and	(hl)		; mit XON/XOFF verkn}pfen (=0 bei NotReady)
+	pop	hl
+	ret	z		; RET mit kombiniertem Status (A=0, Z=1)
+	or	0FFh		; A k|nnte sonst empfangenes Zeichen halten!
+	ret
+
+; Tabellengesteuerter Hardware-Ausgabestatustreiber f}r alle Devices.
+; Sonderbehandlung f}r Hardware-Handshake Device 0 (CPU-UART) }ber GPI.
+; Device in B bei Aufruf. Register BDEHL unver{ndert.
+; Anschlie~end IX=^PORTS, I/O-Page entsprechend Tabelle gesetzt.
+; Status-Ergebnis: bei READY A=FF / Z=0, bei NOT READY A=0, Z=1.
+
+CoSt:	push	hl
+CoSt0:	ld	a,9
+	multu	a,b		; HL = 9x Device
+	call	z,OSt0		; Device 0: Hardware-Handshake
+	lda	ix,(hl++Ports)	; Zeiger auf Device-Portdaten
+	iopage	(ix)		; I/O-Page setzen
+	pop	hl
+	ld	c,(ix+1)	; Statusportadresse
+	in	a,(c)		; Status lesen
+	xor	(ix+2)		; evtl. Bits invertieren
+	and	(ix+3)		; TXE-Maske pr}fen
+	ret	z		; A=00 : Not Ready
+	or	0FFh		; A=FF : Ready
+	ret
+
+; CTS-Handshaketreiber f}r Device 0 (CPU-UART). Erster Befehl wird durch
+; DEVINI auf NOP oder RET gepatcht, um Handshake an- bzw. abzuschalten.
+
+OSt0:	nop
+	ld	a,l
+	iopage	BoardP
+	ld	l,a
+	in	a,(gpi)
+	bit	b$cts1,a
+	ret	z		; CTS vorhanden: normal weiter (TXE pr}fen)
+	pop	hl		; (Return-Adresse)
+	pop	hl		; (HL)
+	xor	a		; nicht bereit: A=0, Z=1
+	ret
+
+;***********************************************************************
+;**    Eingabe-Status aller logischen Character-I/O-Schnittstellen    **
+;***********************************************************************
+
+AuxISt::ld	hl,(@AIVec)	; AUXILIARY-INPUT-STATUS
+	jr	IStScn
+
+ConSt::	ld	a,(BrkFlg)	; CONSOLE-INPUT-STATUS
+	or	a		; ^C an Host zu senden ?
+	ret	nz		; ja: 'Device Ready' melden
+	ld	hl,(@CIVec)	; sonst normal Schnittstellen bearbeiten
+
+IStScn:	ld	b,0		; anfangen mit Device 0
+IStSc1:	xor	a		; A=0 (Z): nicht ex. Device 'NotReady'
+	add	hl,hl		; Bit ausschieben -> Carry
+	call	c,CiSt		; Status lesen
+	ret	nz		; min. 1 Device ready
+	inc	b		; dev + 1
+	ld	a,h
+	or	l		; weitere abzufragen ?
+	jr	nz,IStSc1
+	ret			; not ready: RET mit A=00
+
+; Tabellengesteuerter Eingabestatustreiber f}r alle Devices.
+; Eingang: Device in B. Ausgang: IX=^PORTS, IOP gesetzt, A=00/FF, Z=1/0.
+; Register BDEHL unver{ndert.
+
+CiSt:	push	hl
+	ld	a,9
+	multu	a,b
+	lda	ix,(hl++Ports)	; Zeiger auf Device-Portdaten
+	iopage	(ix)		; I/O-Page entsprechend setzen
+	pop	hl
+	ld	c,(ix+5)	; Statusportadresse
+	in	a,(c)		; Status lesen
+	xor	(ix+6)		; evtl. Bits invertieren
+	and	(ix+7)		; RXF-Maske pr}fen
+	ret	z		; A=00 : Not Ready
+	or	0FFh		; A=FF : Ready
+	ret
+
+;***********************************************************************
+;**   Eingabe-Routinen aller logischen Character-I/O-Schnittstellen   **
+;***********************************************************************
+
+AuxIn::	ld	hl,(@AIVec)	; AUXILIARY INPUT
+	jr	InScn
+
+ConIn::	ld	a,(BrkFlg)
+	or	a
+	jr	nz,SndBrk	; ^C an Host zu senden: Sonderfall
+	ld	hl,(@CIVec)	; CONSOLE INPUT
+
+InScn:	push	hl
+	call	IStScn		; Gesamt-Input-Status abfragen
+	pop	hl
+	jr	z,InScn		; warten bis Zeichen da (dann B/IX/IOP g}ltig)
+CIn:	ld	c,(ix+8)	; Adresse des Eingabe-Ports
+	in	a,(c)		; Zeichen holen
+	ret
+
+SndBrk:	inc	(BrkFlg)	; Flag l|schen (FF->00): nur einmal ^C senden
+	ld	a,CtlC
+	ret			; und Ende mit ^C in A
+
+; Flag f}r ^C-Abbruchm|glichkeit bei Disk-I/O-Fehlern.
+; Wenn gesetzt (FF), dann wird beim n{chsten CONIN ein ^C zum Host geliefert.
+
+BrkFlg::defb	0		; Default: kein ^C ...
+
+; Tabelle f}r XON/XOFF-Protokoll: bei XON (^Q) ist Wert FF, bei XOFF (^S) wird
+; Wert 00 in XOFFLIST eingetragen (Eintr{ge f}r alle 16 Devices). Sind w{hrend
+; der Ausgabe andere Zeichen empfangen, werden sie hier gespeichert.
+
+XoffList:defb	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1
+
+;***********************************************************************
+;**           Steuertabellen f}r Character-Treiber                    **
+;***********************************************************************
+
+; Die angegebenen Device-Nummern gelten bei Vollausbau (d.h. alle
+; Optionen vorhanden). Ansonsten wird der Bereich 'gestaucht'.
+
+; Tabelle der Portadressen und Bitmasken aller Devices.
+; F}r jeden Baustein sind in folgender Reihenfolge die Daten enthalten:
+; I/O-Page, TX-Statusport, TX-Invert-Maske, TXE-Maske, OUT-Datenport,
+; RX-Statusport, RX-Invert-Maske, RXF-Maske, IN-Datenport.
+; (Die Invertierung erfolgt vor der Maskierung.)
+
+Ports:	defb	UartP,TCS,0,01h,TDR,RCS,0,10h,RDR	; 0: CRT1
+	defb	BoardP,UartCtl,0,40h,UartDat,UartCtl,0,80h,UartDat ; 1: CRT2
+    if ioclk
+	defb	BusP,V24AC,0,0,0,V24AC,0,01h,V24AD	; 2: V24AR
+	defb	BusP,V24AC,0,04h,V24AD,V24AC,0,0,0	; 3: V24AT
+	defb	BusP,V24BC,0,04h,V24BD,V24BC,0,01h,V24BD ; 4: V24B
+    endif
+    if spool
+	defb	BusP,SplSta,80h,80h,SplDat,SplSta,0,0,0	; 5: SPOOL
+    endif
+    if hgt
+	defb	BusP,hgtsta,0,04h,hgtdat,hgtsta,0,01h,hgtdat ; 6: HGT
+    endif
+    if ide
+	defb	BusP,Centr,80h,80h,Centr,Centr,0,0,0	; 7: CENTR
+    endif
+
+; DEVICE-Tabelle f}r direkten CP/M-3-Zugriff
+; Zun{chst Tabelle f}r zus{tzliche Kommunikationsparameter (r}ckw{rts) :
+; Bit 7,6 :	00 = 5 Bit		01 = 7 Bit
+;		10 = 6 Bit		11 = 8 Bit
+; Bit   5 :	 0 = RX/TX Enable	 1 = Auto Enables (Hard-Handshake)
+; Bit 3,2 :	00 = verboten		01 = 1 Stopbit
+;		10 = 1.5 Stopbits	11 = 2 Stopbits
+; Bit   1 :	 0 = Parity odd		 1 = Parity even
+; Bit   0 :	 0 = Parity disable	 1 = Parity enable
+
+	cseg
+
+    if ide
+	defb	0		; dev 7: parallel
+    endif
+    if hgt
+	defb	0		; dev 6: parallel
+    endif
+    if spool
+	defb	0		; dev 5: parallel
+    endif
+    if ioclk
+	defb	11100100b	; dev 4 V24B: 8+1 Bit, No Parity, Auto Enables
+	defb	11100100b	; dev 3 V24AT: 8+1 Bit, No Parity, Auto Enables
+	defb	11100100b	; dev 2 V24AR: 8+1 Bit, No Parity, Auto Enables
+    endif
+C2H::	defb	11100100b	; dev 1 CRT1: 8+1 Bit, No Parity, Auto Enables
+C1H::	defb	11100100b	; dev 0 CRT2: 8+1 Bit, No Parity, Auto Enables
+
+	endif	; (if not loader)
+	
+CTbl::	defb	'CRT1  '	; dev 0, Konsole 1 (CPU)
+	defb	InOut+Serial+SoftBd
+C1Bd::	defb	Bd19200
+	defb	'CRT2  '	; dev 1, Konsole 2 (TPUART)
+	defb	InOut+Serial+SoftBd
+C2Bd::	defb	Bd19200
+    if ioclk
+	defb	'V24AR '	; dev 2, V24A Input
+	defb	Input+Serial+SoftBd
+	defb	Bd9600
+	defb	'V24AT '	; dev 3, V24A Output
+	defb	Output+Serial+SoftBd
+	defb	Bd9600
+	defb	'V24B  '	; dev 4, V24B (Bidir.)
+	defb	InOut+Serial+SoftBd
+	defb	Bd9600
+    endif
+    if spool
+	defb	'SPOOL '	; dev 5, Spooler (Centronics)
+	defb	Output
+	defb	BdNone
+    endif
+    if hgt
+	defb	'HGT   '	; dev 6, HGT-Terminal (parallel am Bus)
+	defb	InOut
+	defb	BdNone
+    endif
+    if ide
+	defb	'CENTR '	; dev 7, Centronics auf IDE-Karte
+	defb	Output
+	defb	BdNone
+    endif
+	defb	0		; Tabellenende
+
+; Werte f}r "Mode"-Feld in Device-Tabelle
+
+Input	equ	00000001b
+Output	equ	00000010b
+InOut	equ	Input+Output
+SoftBd equ	00000100b
+Serial	equ	00001000b
+XonXoff	equ	00010000b
+
+; Werte f}r Baudrate-Zuordnung
+
+BdNone	equ	0	; keine Baudrate (parallel)
+Bd50	equ	1	; 38400/19200 Baud (statt 50 Baud)
+Bd75	equ	2	; 75 Baud
+Bd110	equ	3	; 110 Baud
+Bd134	equ	4	; 134.5 Baud
+Bd150	equ	5	; 150 Baud
+Bd300	equ	6	; 300 Baud
+Bd600	equ	7	; 600 Baud
+Bd1200	equ	8	; 1200 Baud
+Bd1800	equ	9	; 1800 Baud
+Bd2400	equ	10	; 2400 Baud
+Bd3600	equ	11	; 3600 Baud
+Bd4800	equ	12	; 4800 Baud
+Bd7200	equ	13	; 7200 Baud
+Bd9600	equ	14	; 9600 Baud
+Bd19200	equ	15	; 19200 Baud
+
+	end
+

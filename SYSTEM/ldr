@@ -1,0 +1,48 @@
+; MAKE-File f}r Erzeugen des CPU280-Bootladers, TR 950131
+;
+; zun{chst (immer) Option-File f}r "Lader" kopieren
+;
+options.lib :
+  pip options.lib=loader.lib
+;
+; Einzelne Module konvertieren und assemblieren
+;
+loader.rel : loader.280 z280equ.lib cpu280.lib loader.lib ldrio.lib
+  pre280 loader
+  slr180 loader/ut
+  era loader.mac
+lkernel.rel : kernel.280 z280equ.lib cpu280.lib loader.lib ldrio.lib
+  pre280 -o lkernel kernel
+  slr180 lkernel/ut
+  era lkernel.mac
+lintrpt.rel : intrpt.280 z280equ.lib cpu280.lib loader.lib
+  pre280 -o lintrpt intrpt
+  slr180 lintrpt/ut
+  era lintrpt.mac
+ldiskio.rel : diskio.280 z280equ.lib cpu280.lib loader.lib
+  pre280 -o ldiskio diskio
+  slr180 ldiskio/ut
+  era ldiskio.mac
+lhalbl.rel : halbl.280 z280equ.lib cpu280.lib loader.lib
+  pre280 -o lhalbl halbl
+  slr180 lhalbl/ut
+  era lhalbl.mac
+lhard.rel : hard.280 z280equ.lib cpu280.lib loader.lib
+  pre280 -o lhard hard
+  slr180 lhard/ut
+  era lhard.mac
+lchario.rel : chario.280 z280equ.lib cpu280.lib loader.lib
+  pre280 -o lchario chario
+  slr180 lchario/ut
+  era lchario.mac
+setup.rel : setup.280 ldrio.lib loader.lib
+  pre280 setup
+  slr180 setup/ut
+  era setup.mac
+;
+; Module zu Laderprogramm linken
+;
+loader.cim : loader.rel lkernel.rel lintrpt.rel ldiskio.rel lhalbl.rel \
+             lhard.rel lchario.rel setup.rel ldos.rel
+  slrnk /v,/a:0,loader/n/y,loader,lkernel,lintrpt,ldiskio,lhalbl,lhard,lchario,setup,ldos,/e
+

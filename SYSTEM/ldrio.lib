@@ -1,0 +1,65 @@
+; 080992 Tilmann Reh
+; Makro-Datei f}r Character-I/O innerhalb CPU280-Boot-Loader
+; Alle Konsolenoperationen benutzen diese Makros, so da~ Anpassung
+; an andere Terminals EINZIG HIER erfolgen mu~.
+
+; Diese Version steuert das REH-HGT am ECB-Bus (paralleles Interface).
+
+HgtBase	equ	60h		; Basisadresse
+HgtDat	equ	HgtBase		; Datenport HGT
+HgtSta	equ	HgtBase+1	; Statusport HGT
+
+; (Default f}r CPU-Schnittstelle CRT1)
+def1h	equ	11000100b	; Default 8+n+1, kein Handshake
+def1bd	equ	14		; Default 9600 Baud
+
+;***********************************************************************
+;**           Initialisierung der Konsolenschnittstelle               **
+;***********************************************************************
+
+; Alle Register au~er SP d}rfen verwendet werden.
+
+chrnit:	macro
+	iopage	busp		; I/O-Page ECB-Bus
+	in	a,(hgtdat)
+	in	a,(hgtdat)	; Transferregister leersaugen
+	endm
+
+;***********************************************************************
+;**                 Zeichenausgabe an Konsole                         **
+;***********************************************************************
+
+; Die Erstregister d}rfen nicht ver{ndert werden, es darf kein RAM benutzt
+; werden. Benutzt werden d}rfen: AF und die Zweitregister BC' und HL'.
+
+outchr	macro	data
+	local	outc1
+	exx			; -> Zweitregister
+	iopage	busp
+outc1:	in	a,(hgtsta)
+	bit	2,a
+	jr	z,outc1		; warten auf TX-BE
+	exx			; -> Erstregister
+	ld	a,data
+	out	(hgtdat),a	; Zeichen ausgeben
+	endm
+
+;***********************************************************************
+;**                 Zeicheneingabe von Konsole                        **
+;***********************************************************************
+
+; Makro zum Pr}fen auf empfangenes Zeichen (und einlesen desselben).
+; Antwort mit Zeichen in A oder CY gesetzt.
+; Keine Verwendungseinschr{nkungen.
+
+inchar:	macro			;; ':' wegen PRE280 Interpretationsfehler
+	local	exit
+	iopage	busp
+	in	a,(hgtsta)	; Status Port
+	bit	0,a		; RX Character available ?
+	scf
+	jr	z,exit		; nein: Exit mit CY gesetzt
+	in	a,(hgtdat)	; Zeichen lesen
+	or	a		; CY l|schen
+exit:	endm
+

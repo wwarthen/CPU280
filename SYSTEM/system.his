@@ -1,0 +1,140 @@
+History file for the System BIOS of the CPU280
+----------------------------------------------
+(First Release V1.0 was of 17 November 90)
+
+Messages of version 1.0 through 1.02 only in german language. First
+english software manual describes version 1.02, thus this should not
+arise any problems. TR 930314
+
+V1.01 vom 26.12.90:
+- [nderung: zwischen OUT/JP jetzt IN bzw. 4xNOP statt NOP aufgrund
+  neuestem Errata Sheet.
+- [nderung: Umstellung auf 16-Bit Spur-/Sektornummern.
+- [nderung: alle Parameterblocks auf Maximalwerte f}r GENCPM,
+  diese variabel gemacht durch allgemeine EQUates. Dadurch kein Default-
+  format mehr g}ltig.
+- Test: Umschaltung auf 0 I/O-Waits w{hrend Floppy-I/O.
+  Dazu auch Einf}hrung des Macros IOWAIT in CPU280.LIB.
+
+V1.02 vom 23.01.91:
+- BugFix: Verwendung der Retry-Option nach Diskettenfehlern jetzt
+  uneingeschr{nkt m|glich.
+- Erweiterung: Bei den Abfragen nach Disk-I/O-Fehlern (Abort/Ignore/Retry)
+  ist jetzt auch die Eingabe von ^C zugelassen. In diesem Fall wird ein
+  'Abort' durchgef}hrt und gleichzeitig ein Zeichen ^C an das BDOS gegeben.
+- Erweiterung: Einf}hrung der neuen Spur}bersetzung sowie Verwendung der
+  Kopfnummern aus dem Parameterblock (siehe Format-Manager).
+- Erweiterung: UserF-Funktion 13 'Read Track Diagnostic' f}r neuen
+  Format-Manager. Dadurch bei 'GetVersion' neue Nummer (jetzt 101h).
+- Erweiterung: Durch die SETMMU-Routine von Stefan Nitschke ist jetzt das
+  Directory Hashing auch mit unver{ndertem RESBDOS m|glich.
+- [nderung: Bei Leseversuchen durch den Format-Manager (ReadPhysical)
+  werden keine Fehlermeldungen mehr ausgegeben (auch keine Fragen).
+- [nderung: Die Diskwechselerkennung (Interrupt 200 ms) pr}ft jetzt nur
+  noch die bisher eingeloggten Laufwerke. Dadurch kann es auftreten, da~
+  die Select-LEDs dieser Laufwerke etwas unregelm{~ig flackern, dies hat
+  aber keine weitere Bedeutung.
+  Feststellung: Bei schreibgesch}tzten 3.5"-Disketten kann kein Diskwechsel
+  erkannt werden! (Schalter wird nie bet{tigt.) ALSO VORSICHT!
+- [nderung: bei UserF 'Read ID' wird der Interrupt-Z{hler f}r den Status-
+  Check auf 200ms r}ckgesetzt. Dadurch im Format-Manager bei 'Diskette
+  untersuchen' keine Fehler mehr in der phys. Sektorabfolge.
+- [nderung: bei zu hohen Spurangaben (z.B. aufgrund defekter Parameter)
+  wird nun unter keinen Umst{nden }ber die im Parameterblock spezifizierte
+  Spuranzahl hinausgefahren.
+- [nderung: beim Booten werden Einstellungen und PseudoDisk-Parameter aus
+  einem vom Lader angefertigten Parameterblock }bernommen. Daher ist diese
+  Systemversion nicht mit dem alten Lader kombinierbar.
+- [nderung: Time-Outs bei Diskettenfehlern von 5 auf 1 Sekunde verk}rzt.
+- [nderung (intern): Aufrufkonvention f}r DMASET ge{ndert: HL statt IX.
+
+
+V1.1 of 13 May 1993:
+- Completely rearranged the module structure of the BIOS, especially
+  concerning the disk I/O drivers. Now the KERNEL module contains
+  generalized table-controlled driver routines, which access the various
+  I/O drivers using the Drive Table (thus, the DPH's) only. Every disk I/O
+  module/driver now contains the complete data structures used within
+  itself, while the DPH address is the only public entry of each module.
+- Removed the usage of pseudo-disk configuration data supported by the
+  boot loader. Now using init routines contained in each driver module.
+- Changed disk driver structure and added code so that the same driver
+  source code can be used for both the system BIOS and the boot loader.
+  Also moved all driver-related messages into the modules.
+- Introduced conditional assembly for all hardware options, controlled by
+  a new include file SYSTEM.LIB.
+- Added multi-language support for all system messages and keystrokes.
+  Language is selected via SYSTEM.LIB.
+- Removed internal interrupt stacks and resident boot stack. Now the BIOS
+  uses only the system stack in banked memory, leaving more room for DPB's
+  in the resident BIOS portion.
+- Changed disk-change recognition to not directly patch into the BDOS code,
+  but use the media flag instead. Now also runs with ZPM3.
+- Removed the SETMMU module, putting the code into the INTRPT module.
+  Placed all MMU parameter tables into the BOOT module.
+- Removed the option "bootdsk" for booting the CCP from disk. Now the CCP
+  is always loaded from EPROM directly.
+- Added variable retry counts for disk I/O. These counts will be stored in
+  the Setup NVRAM in a future release.
+- BugFix: After a time-out on one floppy disk drive (which causes an FDC
+  reset), a flag is set so that all other drives are recalibrated before
+  the next access.
+- BugFix: Doubled floppy disk step-time for 40 track drives (parameters
+  are defined for 80 track drives).
+- Added a fully configurable hard disk driver for the IDE interface board.
+  May be expanded to also support other hard disk interfaces.
+- Added optional support of a modified c't SRAM pseudo-drive board with a
+  capacity of 768 KB.
+- Changed several labels and did very many small optimizations in almost
+  any BIOS module.
+- BugFix: After a time-out when logging in a disk, the drive motors are
+  stopped after the programmed time when 'Abort' is chosen.
+- Added code to set the day of week when the RTC is set. So now the auto-
+  matic DSE switching will work properly (switching on sunday).
+- The system BIOS now does not use the secondary register set of the CPU.
+  (This could cause problems with Z3PLUS and some application programs.)
+
+
+V1.11 of 25 November 1993:
+- BugFix: Set timer 1 control registers and RTS1 so that CRT1 works.
+- Changed time-out processing when initialising an IDE harddisk.
+
+
+V1.12 of 21 November 1994:
+- Added second method for disk change recognition (DCHG signal
+  processing); also added option for method selection in SYSTEM.LIB.
+- Added free-running 16-bit counter (10 ms per increment) at fixed
+  address FFFEh (last two bytes of CPU address space) for application
+  timing purposes.
+- Reduced default motor-off delay of floppy drive to 5 seconds if
+  hard-disk is present (if not, still 15 seconds).
+
+
+V1.13 of 15 February 1995:
+- Preserved IX for all Disk-I/O public functions so ZPM3 will run
+  without failures. ZPM3 is a piece of badly written software in this
+  concern: it *never* saves/restores the index registers (though this
+  is not mentioned in the doc's as a requirement for the BIOS)!
+- BugFix: Added DMA-Bug ("HDBug") support in formatting routine so
+  that formatting of HD diskettes immediately after cold boot is now
+  possible.
+- BugFix: parallel use of disks with different densities now doesn't
+  lead to errors (this bug was in older versions too, but showed only
+  under the rare circumstances of two different-density drives positioned
+  on the same track; due to a different track storing method with V1.12,
+  it finally showed regardless of the head positions).
+- BugFix: after an illegal System Call, the parameter displayed in the
+  trap message is now correct (high-byte could be one too low).
+- Made many small changes and modifications, mostly by adding assembly
+  conditionals to make the modules usable for the new system loader.
+- Added self-configuration of the MDrive's directory size. For 512k
+  and 1M of total RAM, there will be 256 entries. For 2M, 512 entries
+  are defined, and 1024 entries at 4M RAM. (The boot loader now always
+  initialises 1024 entries.)
+
+
+V1.13 of 14 March 1995:
+- Fixed a bug in the auto-configuration code for MDrive directory size.
+  (The bug showed only with more than 1 MB of RAM.)
+
+

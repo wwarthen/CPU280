@@ -1,0 +1,287 @@
+	title	'Boot and Move Module of CP/M-3 BIOS'
+	.z280
+	.xlist
+	maclib	Z280EQU
+	maclib	CPU280
+	maclib	OPTIONS
+	.list
+
+; 930227 Tilmann Reh
+
+Ints	equ	i$c + i$ct0	; freizugebende Interrupts
+
+; Adre~lage des TPA in EPROM und Arbeitsspeicher. F}r Boot/Reboot.
+
+EprCCP	equ	3000h		; Startadresse CCP im EPROM
+TPA	equ	100h		; Startadresse TPA (Zieladresse f}r CCP)
+
+	dseg			; banked
+
+; Zun{chst Interruptbetrieb vorbereiten (ITV-Table belegen).
+; ITVT liegt in System-Bank auf Adresse 0 (phys. 810000h).
+; (Zeiger auf globale Parameter in IX nicht vergessen!)
+
+Boot::	di
+	ld	hl,ITVT
+	ld	de,0
+	ld	bc,100h		; 256 Byte laden
+	ldir			; ITV Table neu laden
+
+; Stack definieren und INT Enable
+
+	ld	sp,XStack	; BIOS-Stack (gebankt im System-Mode)
+	ei	Ints		; INTC und CT0 Interrupts Enable
+	push	ix		; Zeiger auf SCB-Default-Parameterblock retten
+
+; Schnittstellen initialisieren und zuweisen (Default-Belegung).
+; Werte werden direkt aus NVRAM (Setup) }bernommen.
+
+	iopage	BoardP
+	in	a,(s$c1h)
+	ld	(c1h),a
+	in	a,(s$c1bd)
+	ld	(c1bd),a
+	in	a,(s$c2h)
+	ld	(c2h),a
+	in	a,(s$c2bd)
+	ld	(c2bd),a	; Initialisierungs-Parameter CRT1 / CRT2
+
+	ld	bc,12*100h	; bis zu 12 I/O Kan{le initialisieren
+CI_Lp:	push	bc
+	call	DevIni		; Initialisieren eines Kanals
+	pop	bc
+	inc	c
+	djnz	CI_Lp		; weitermachen bis einschl. Device 11
+
+; I/O Redirection Vektoren und Drive Search Chain aus Lader kopieren.
+
+	pop	hl		; Parameter-Zeiger
+	ld	de,@CIVec	; Ziel: I/O Redirection Vektoren im SCB
+	ld	bc,10		; 5 Worte
+	ldir
+	ld	de,SCB+4Ch	; Ziel: Drive Search Chain im SCB
+	ld	c,4		; 4 Byte
+	ldir
+	ld	a,5
+	ld	(de),a		; Temporary Drive E:
+	ld	(SCB+18h),8	; Search Order COM,SUB
+	ld	hl,SignOn
+	call	PMsg		; Anfangs-Signon ausgeben
+
+; Alle Laufwerke initialisieren (Treiber anhand XDPH aufrufen).
+; Dabei werden bei Fehlern die entsprechenden Drives in DTBL gel|scht.
+
+	ld	b,16		; Alle 16 logischen Laufwerke bearbeiten
+	ld	hl,DTbl		; Zeiger auf Drive Table
+DrvIni:	push	hl
+	ldw	hl,(hl)		; Eintrag aus Drive Table: XDPH
+	ld	a,h
+	or	l
+	jr	z,DrvIn1	; Eintrag 0 : kein Laufwerk
+	ldw	hl,(hl+25)	; sonst Init-Einsprung aus XDPH holen
+	ld	a,h
+	or	l
+	push	bc
+	call	nz,(hl)		; ggf. Treiber aufrufen
+	pop	bc
+DrvIn1:	pop	hl
+	inc	hl
+	inc	hl		; Zeiger auf n{chste XDPH-Adresse
+	djnz	DrvIni		; weiter bis alle Laufwerke bearbeitet
+	jp	WBoot		; CCP laden, Spr}nge setzen, CCP starten
+
+; System-Call-UP zum Nachladen des CCP und Initialisierung der Einspr}nge.
+
+Reboot::ld	hl,MotFlg
+	res	0,(hl)		; jedenfalls Motor ausschalten
+	ld	hl,RstCCP
+	call	DmaSet		; CCP nachladen
+	ld	hl,(@MxTPA)
+	ld	(DosJmp+1),hl	; TPA-Ende (BDOS/RSX-Einsprungadresse)
+	ld	b,8		; 8 Byte
+	ld	de,Jumps	; Quelle
+	ld	hl,0		; Ziel (in TPA)
+RB_Lp:	ld	a,(de)
+	ldup	(hl),a		; Byte kopieren
+	inc	de
+	inc	hl
+	djnz	RB_Lp
+	ret
+
+Jumps:	jp	WBootE		; TPA-Adresse 0000
+	defb	0,0
+DosJmp:	jp	0		; TPA-Adresse 0005
+
+; Einsprung f}r Kalt/Warm-Boot und Warm-Reset :
+; Der Stack beim Einsprung in den CCP wird nie benutzt. Der CCP hat einen
+; eigenen Stack und setzt den Stack f}r TPA-Programme unterhalb des resi-
+; denten BDOS (bzw. innerhalb von LOADER) fest. Interrupts und Traps
+; benutzen den System-Stack.
+
+	cseg
+
+WBoot::	sc	sc$reboot	; CCP laden, Einspr}nge setzen
+	ld	a,1
+	sc	sc$setmod	; User Mode, TPA-Bank, Bus-Page
+	ld	sp,0		; User-SP ganz oben, wird nie ben|tigt!
+	jp	TPA		; in TPA einspringen
+
+;***********************************************************************
+;**              Speicherverwaltung und Kopier-Routinen               **
+;***********************************************************************
+
+; SELMEM schaltet auf andere CPU-Bank um (0..4). Umschaltung zwischen Bank
+; 0 und 1..4 geschieht durch Wechsel in System- bzw. User-Mode; F}r Banks
+; 1..4 mu~ die MMU umprogrammiert werden. Bei Banks <>0 wird auf Bus-IOPage
+; umgeschaltet (falls WBoot!).
+; Au~er Flags kein Register ver{ndert (CP/M-3 Konvention).
+
+SelMem::ld	(SPSav),sp	; vorigen SP retten
+	ld	sp,XStack	; falls Bank 0 -> 1 : Stack f}r INT/Trap
+	sc	sc$setmod	; --> System/User Mode setzen (abh.v. A)
+	ld	sp,(SPSav)	; SP }bernehmen
+	ret
+
+; MOVE-Routinen f}r Blocktransfer. XMOVE benutzt DMA3.
+
+XMove::	set	7,c		; XMOVE-Flag setzen f}r MOVE
+	ld	(SrcBnk),bc	; Source- und Dest.-Bank abspeichern
+	ret
+
+Move::	ld	a,(SrcBnk)
+	rla			; Interbank - Move ?
+	jr	c,Move1
+	ex	de,hl		; aus BDOS Quelle in DE, Ziel in HL
+	ldir			; Block verschieben
+	ex	de,hl		; Register m}ssen auf n{chste Adressen zeigen
+	ret
+Move1:	sc	sc$movex
+	ret
+
+; System-Call UP f}r Interbank-Move:
+
+	dseg
+
+MoveX::	ld	(Length),bc	; Blockl{nge f}r DMA
+	push	hl		; log. Destination
+	push	de		; log. Source
+	ld	a,(DstBnk)	; Destination in AHL
+	call	ClcAdr		; phys. Adresse berechnen
+	ld	(Dest),hl
+	ld	(Dest+2),a	; f}r DMA in Tabelle
+	ex	de,hl
+	ld	a,(SrcBnk)	; Source in AHL
+	res	7,a		; XMove-Flag sonst st|rend...
+	call	ClcAdr
+	ld	(Source),hl
+	ld	(Source+2),a	; phys. Source f}r DMA
+	ld	hl,Xfer
+	call	DmaSet		; DMA : Transfer
+	ld	bc,(Length)	; Blockl{nge
+	pop	hl		; log. Source
+	add	hl,bc
+	ex	de,hl		; Adresse hinter Sourceblock in DE
+	pop	hl
+	add	hl,bc		; Adresse hinter Dest-block in HL
+	xor	a
+	ld	(SrcBnk),a	; nur 1 Mal Interbank: XFLAG r}cksetzen
+	ret
+
+; CLCADR berechnet physikalische 24-Bit-Adresse aus log. 16-Bit-Adresse
+; und Bank (in A und HL). Ergebnis ebenfalls in AHL. G}ltig f}r alle
+; Banks innerhalb des Systemspeichers (Banks 0..4).
+; CLCDMA berechnet physikalische DMA-Adresse (24 Bit, in AHL).
+
+ClcDma::ld	hl,(DMA)	; Einsprung f}r Ber. der phys. DMA-Adresse
+	ld	a,(DBnk)
+
+ClcAdr::ld	b,a		; Bank nach B
+	dec	b		; Bank 1 ?
+	ld	a,80h
+	ret	z		; in Bank 1 : physikalisch Bank 80h
+	cpw	hl,0F000h	; innerhalb Common (ab F000) ?
+	ret	nc		; Adresse }ber F000 : auch Bank 80h
+	inc	a		; --> 81h
+	inc	b
+	ret	z		; Bank 0 : ab 810000h
+	dec	b		; 2..4 --> 1..3
+ClcLp:	addw	hl,0F000h
+	adc	a,0		; jeweils n{chste Bank 60k weiter
+	djnz	ClcLp		; maximal 3 Schleifendurchl{ufe (Bank 4)
+	ret
+
+; MMU-Tabellen f}r System- und User-Mode.
+; System-Mode nur PDR's 0 und 1 (ben|tigt f}r Diskio-Invert).
+; User-Mode alle Werte f}r Bank 1..4 f}r PDR's 0..14 (PDR 15 = Common).
+; Ab physikalischer Adresse 840000 Access Violation (MDrive)!
+
+SysMMU::defw	810Ah,811Ah	; System-PDRs 0 und 1 im Originalzustand
+
+UsrMMU::defw	800Ah,801Ah,802Ah,803Ah,804Ah,805Ah,806Ah,807Ah ; Bank 1
+	defw	808Ah,809Ah,80AAh,80BAh,80CAh,80DAh,80EAh
+	defw	81FAh,820Ah,821Ah,822Ah,823Ah,824Ah,825Ah,826Ah ; Bank 2
+	defw	827Ah,828Ah,829Ah,82AAh,82BAh,82CAh,82DAh
+	defw	82EAh,82FAh,830Ah,831Ah,832Ah,833Ah,834Ah,835Ah ; Bank 3
+	defw	836Ah,837Ah,838Ah,839Ah,83AAh,83BAh,83CAh
+	defw	83DAh,83EAh,83FAh,8406h,8416h,8426h,8436h,8446h ; Bank 4
+	defw	8456h,8466h,8476h,8486h,8496h,84A6h,84B6h
+
+;***********************************************************************
+;**                     DMA-Ansteuerung                               **
+;***********************************************************************
+
+; DMA-Register mit den Werten ab (HL) laden. Parameterblock:
+; 8 Bit DMA-Adr, 24 Bit Dest, 24 Bit Src, 16 Bit Length, 16 Bit Control.
+
+DmaSet::ld	b,l
+	iopage	DMAP
+	ld	l,b
+	ld	c,(hl)		; Adresse DMA-Register
+	inc	hl
+	outiw			; DAL
+	inc	c
+	dec	hl
+	outiw			; DAH
+	inc	c
+	outiw			; SAL
+	inc	c
+	dec	hl
+	outiw			; SAH
+	inc	c
+	outiw			; Length
+	inc	c
+	outiw			; Descriptor
+	ret
+
+;***********************************************************************
+;**                       Variablen / Text                            **
+;***********************************************************************
+
+; DMA-Parameterbl|cke f}r Move-Operationen
+
+RstCCP:	defb	dal3		; DMA 3
+	defw	TPA
+	defb	80h		; Dest 800100
+	defw	EprCCP
+	defb	0		; Src 00xxxx
+	defw	1000h		; Length max. 4k Words (=8 KB)
+	defw	1000001100000000b ; Words MEM -> MEM, Cont., Enable
+
+Xfer:	defb	dal3		; DMA 3
+Dest:	defs	3		; 24-Bit Destination Adresse (phys.)
+Source:	defs	3		; 24-Bit Source Adresse (phys.)
+Length:	defs	2		; 16-Bit Blockl{nge (in Byte)
+	defw	1000000100000000b ; Bytes MEM -> MEM, Cont., Enable
+
+	cseg			; Diese Variablen resident (f}r MOVE/SELMEM)
+
+SrcBnk:	defb	0		; *** Quellbank/Flag f}r XMOVE (16 Bit: S&D!)
+DstBnk:	defb	0		; *** Zielbank f}r XMOVE
+SPSav:	defs	2		; Zwischenspeicher f}r SP bei SELMEM
+
+	dseg			; Text darf in Bank 0 sein
+
+SignOn:	defz	cr,lf,'CP/M-3 BIOS V1.13 TR 950314',cr,lf
+
+	end
+

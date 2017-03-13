@@ -1,0 +1,56 @@
+History-Datei f}r den Bootlader zur CPU280
+------------------------------------------
+(Erste Abgabe V1.0 am 17.11.90)
+
+
+V1.01 vom 16.12.90:
+- [nderung: zwischen OUT/JP jetzt IN bzw. 4xNOP statt NOP aufgrund
+  neuestem Errata Sheet.
+- [nderung: Zustandserkennung 'Inbetriebnahme' }ber J7 statt RTC-Reset.
+- [nderung: neue Pr}fsumme erst nach Verlassen des Setup speichern.
+- [nderung: Default-Diskettenformat 'Reh 3.5" HD' (1760k),
+  Puffer vergr|~ert f}r bis zu 512 Directory Entries, 880 Blocks.
+- [nderung: DMA im Single-Byte-Mode statt Burst-Mode.
+
+
+V1.02 vom 19.01.91:
+- Erweiterung: Auch der Lader unterst}tzt jetzt die neue Spur}bersetzung
+  sowie die expliziten Kopfnummern aus dem Parameterblock.
+- Erweiterung: Die RAM-Disks werden nicht generell gel|scht, sondern auf
+  das evtl. bereits vorhandene Label untersucht. Bei intaktem Label wird
+  nichts gel|scht, bei bis zu 5 fehlerhaften Bytes wird nachgefragt, ob
+  gel|scht werden soll, und nur bei }ber 5 Fehlern wird gnadenlos gel|scht.
+- Erweiterung: Die beim Systemstart ben|tigten Daten werden gr|~tenteils
+  bereits im Lader angelegt und in einem globalen Parameterblock an die
+  BOOT-Routine des BIOS weitergegeben.
+- [nderung: Zus{tzlich zu J7 auch bei RTC-Reset 'Inbetriebnahme'.
+- [nderung: Datum der RAM-Disk-DirLabels generell Versionsdatum Lader.
+
+14.06.92 (still V1.02): added english messages (conditional assembly).
+
+
+V1.02a of 27 June 1994:
+- Changed Initialisation of MDrive-Directory to 32k (1024 Entries).
+
+
+V1.13 of 15 February 1995:
+- Completely rearranged loader structure to make use of the modular
+  device driver sources of the CP/M-3 system BIOS. Most of the BIOS
+  modules are now used within the loader, too. The version number of
+  the loader was therefore changed to be the same as the system release
+  with the matching BIOS modules.
+- Added support for booting the system file CPM3.SYS from every
+  existent drive, including all pseudo-disks. Expanded setup to
+  allow for appropriate selection of the boot drive.
+- During boot, the RAM disks are now initialised with 1024 directory
+  entries each.
+- In the setup menu, the I/O device names are now listed to make
+  selection easier. However, it has to be noted that the CPM3.SYS file
+  to be loaded might contain other definitions! The device names and
+  their numbering are took from the LOADER portion within the EPROM only.
+
+V1.13 of 14 March 1995:
+- Fixed a bug in the auto-configuration code for MDrive directory size.
+  (The bug showed only with more than 1 MB of RAM.)
+
+
