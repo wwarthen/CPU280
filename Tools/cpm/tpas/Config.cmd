@@ -1,0 +1,1 @@
+..\..\ansicon\ansicon ..\..\zx\zx tinst

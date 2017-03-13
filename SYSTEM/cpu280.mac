@@ -117,7 +117,7 @@ Date	aset	(Year-78)*365 + (Year-77) shr 2 + Day
 Date	aset	Date+1
 	endif
 XMonth	aset	Month
-	irp	md,<31,28,31,30,31,30,31,31,30,31,30,31>
+	irp	Md,<31,28,31,30,31,30,31,31,30,31,30,31>
 	if	XMonth>1
 Date	aset	Date+Md
 XMonth	aset	XMonth-1

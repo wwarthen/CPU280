@@ -1,0 +1,67 @@
+;***********************************************************************
+;**  Optional global settings for CPU280 System Software              **
+;**  (Equations used for conditional assembly)                        **
+;**  950122 Tilmann Reh                                               **
+;***********************************************************************
+
+; Boolean constants:
+
+false	equ	0
+true	equ	not false
+
+; The following flag is for usage of the same module sources for both
+; System BIOS and Boot Loader. Do not change its value! You will (later)
+; need two files SYSTEM.LIB and LOADER.LIB which contain exactly the
+; same definitions, except for this flag. The appropriate file will
+; be copied to OPTIONS.LIB prior to assembly, which is included in all
+; the module source files.
+
+loader	equ	false	; Selection between System BIOS and Boot Loader
+
+; Language for texts and error messages:
+
+deutsch	equ	false	; deutsche Meldungen & Texte
+english	equ	true	; english messages & texts
+
+    if deutsch
+	YesChar		equ	'J'	; Ja
+	NoChar		equ	'N'	; Nein
+	RetryChar	equ	'W'	; Wiederholen
+	IgnoreChar	equ	'I'	; Ignorieren
+	AbortChar	equ	'A'	; Abbruch
+    endif
+    if english
+	YesChar		equ	'Y'	; Yes
+	NoChar		equ	'N'	; No
+	RetryChar	equ	'R'	; Retry
+	IgnoreChar	equ	'I'	; Ignore
+	AbortChar	equ	'A'	; Abort
+    endif
+
+; Disk change detection method:
+; Mask consisting of four bits, specifying DCHG signalling (bit set)
+; or WP edge detection (bit reset) for floppy drives A: through D:.
+; If a drive supports WP edge detection (seemingly all 5.25" drives
+; and some older 3.5" drives) you should use this method since it
+; requires less CPU power (about 0.033% per logged drive, opposed to
+; about 0.109% per logged drive for the DCHG method). Caution: the
+; WP status of the disk may influence the drive's behaviour - always
+; check with both possible states before using WP edge detection.
+
+;		DCBA
+ChgCap	equ	0011b	; D:/C: WP edge detection, B:/A: have DCHG signal
+
+; Options for additional ECB-Bus boards:
+
+ctram	equ	false	; c't 1 MB RAM-Disk as drive F:
+ctsolid	equ	false	; c't 256 KB Solid-State-Disk as drive G:
+ide	equ	false	; REHdesign IDE-Interface (HD from H:, Centronics)
+omti	equ	false	; OMTI Hard Disk Controller (XT) with ECB adaptor
+
+hard	equ	ide or omti ; hard disk at all
+parts	equ	4	; hard disk: number of partitions
+
+ioclk	equ	false	; REH ECB-I/O-Clk Interface Board
+spool	equ	false	; c't 64k Printer Spooler with TTL ECB-Bus interface
+hgt	equ	false	; REHdesign HGT Grafics Terminal (boot device!)
+

@@ -1,0 +1,7 @@
+This image is a blank meaning there are no files on it.  However, it does have the 128 byte FPB header
+required by CPU280 for access.  To make a blank disk, you must first format it as a standard DOS 1.44MB
+floppy, then write this blank image file onto it.
+
+2017-02-28:
+
+Added volume label "CPU280" and activation of date/time stamping.

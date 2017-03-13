@@ -7,6 +7,7 @@
 	.z280
 
 ; 950214 Tilmann Reh
+; 170308 Wayne Warthen
 
 LogTry	equ	3	; 1..255, Anzahl Versuche bei AutoFormat-Read
 RdTry	equ	3	; 1..255, Anzahl Versuche bei Disk-Read
@@ -379,6 +380,7 @@ DskErr:
 	ld	a,(@ErMde)	; ERROR-MODE aus SCB
 	inc	a
 	jr	z,ErrEx		; bei ErMde=FF keine Meldung, nur RET mit A=1
+    endif ; WBW 2017-02-28: Enable error reporting in loader
 	ld	a,(Drive)
 	add	a,'A'
 	ld	(DrvCod),a	; Drive-Bezeichner einsetzen
@@ -405,7 +407,7 @@ DskErr:
 	ld	hl,Result
 	ld	b,7
 	call	HexLst		; 7 Byte FDC-Result ausgeben
-    endif
+	;endif			; WBW 2017-02-28: Enable error reporting in loader
 ErrEx:	ld	a,1		; RET mit A=1 wegen Fehler
 	ld	hl,0		; falls Fehler beim AutoFormat... (DskSel)
 	ret
@@ -556,6 +558,8 @@ WrLen::	defs	2		  ; L{nge wird eingesetzt
 DskHom:
     if not loader
 	call	MotOnW		; Motor an, warten bis Drive Ready
+    else			; WBW 2017-02-28
+	iopage	BoardP		; WBW 2017-02-28
     endif
 	call	SetStp		; Takt f}r Steprate setzen
 	ld	(CList),7	; FDC-Command 'RECALIBRATE'
@@ -630,6 +634,8 @@ InvLp:	ld	a,(de)
 DskPos::push	ix		; f}r ZPM3
     if not loader
 	call	MotOnW		; Motor an, evtl. warten
+    else			; WBW 2017-02-28
+	iopage	BoardP		; WBW 2017-02-28
     endif
 	ld	a,(Track)
 	ld	c,a		; log. Spur in C
@@ -826,6 +832,9 @@ SetLn1::add	a,a
 LenTab:	defw	128,256,512,1024,2048,4096
 
 ; MOTONW schaltet den Motor an und wartet 1 Sekunde, wenn Motor vorher aus.
+; WBW 2017-02-28: MotOnW routine is now enabled for loader build.  In this
+; case it just sets the iopage which is assumed by code using this routiner.
+; For loader, the rest of the routine is not relevant.
 
     if not loader
 MotOnW::iopage	BoardP		; Page f}r Motor-Port
@@ -960,8 +969,9 @@ TimLp:	call	ConIn
 	jr	DskEr3		; Versuch Wiederholen
 
 ; Liste ab (HL) in Hex ausgeben, Anzahl Bytes in B.
+; WBW 2017-02-28: Enable error reporting for loader build.
 
-    if not loader
+    ;if not loader		; WBW 2017-02-28 (comment out)
 HexLst::ld	c,' '
 	call	CO		; Blank als Trennzeichen
 	ld	a,(hl)
@@ -969,7 +979,7 @@ HexLst::ld	c,' '
 	inc	hl
 	djnz	HexLst		; Zeiger+1, weiter
 	ret
-    endif
+    ;endif			; WBW 2017-02-28 (comment out)
 
 ; Texte (verschiedene Fehlermeldungen):
 
@@ -981,14 +991,14 @@ ErrDrv:	defz	'A: Abbruch/Ignorieren/Wiederholen? '
 
 TimMsg:	defm	cr,lf,'Laufwerk '
 TimDrv:	defz	'A: nicht bereit. Abbruch/Wiederholen? '
-      if not loader
+      ;if not loader		; WBW 2017-02-28 (comment out)
 DrvMsg:	defm	cr,lf,bel,'BIOS '
 DFunc:	defm	'L-Fehler auf '
 DrvCod:	defz	'A: T-'
 SecMsg:	defz	', S-'
 CmdMsg:	defz	cr,lf,'Befehl:'
 ResMsg:	defz	', Status:'
-      endif
+      ;endif			; WBW 2017-02-28 (comment out)
 DioMsg:	defz	cr,lf,'DIO-Fehler'
     endif
     if english
@@ -999,14 +1009,14 @@ ErrDrv:	defz	'A: Abort/Ignore/Retry? '
 
 TimMsg:	defm	cr,lf,'Drive '
 TimDrv:	defz	'A: not ready. Abort/Retry? '
-      if not loader
+      ;if not loader		; WBW 2017-02-28 (comment out)
 DrvMsg:	defm	cr,lf,bel,'BIOS '
 DFunc:	defm	'L-Error on '
 DrvCod:	defz	'A: T-'
 SecMsg:	defz	', S-'
 CmdMsg:	defz	cr,lf,'Command:'
 ResMsg:	defz	', Result:'
-      endif
+      ;endif			; WBW 2017-02-28 (comment out)
 DioMsg:	defz	cr,lf,'DIO Error'
     endif
 

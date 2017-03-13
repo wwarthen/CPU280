@@ -137,4 +137,21 @@ V1.13 of 14 March 1995:
 - Fixed a bug in the auto-configuration code for MDrive directory size.
   (The bug showed only with more than 1 MB of RAM.)
 
+V1.2 of 8 March 2017:
+- Initial distribution of RetroBrew Computers system software based
+  almost entirely on V1.13.  Prior signon retained.
+- Boot drive specified in setup is now pushed into SCB at load.  If
+  the boot drive in setup is 'Q' for eeprom, then the boot drive
+  setting in gencpm.dat is retained.  The boot drive setting in
+  gencpm.dat has been changed to E which seems reasonable for any
+  eeprom startup.
+- Corrected a minor error in diskio.280 which was causing timer 0
+  counter to be overwritten if (and only if) a floppy disk startup
+  was attempted.
+- Modified loader to load both cpm3.sys and ccp.com from disk when
+  a disk startup was selected.  Previously, only cpm3.sys was loaded
+  from disk and ccp.com was still being loaded from ROM.  Regardless
+  of where ccp.com is loaded from, it is now cached in RAM at a common
+  location.
+
 

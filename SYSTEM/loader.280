@@ -8,6 +8,7 @@
 	.z280
 
 ; 950215 Tilmann Reh
+; 170308 Wayne Warthen
 
 Day	equ	14		; Werte f}r Datum im MDrive-DirLabel
 Month	aset	03
@@ -18,6 +19,7 @@ public	Date			; global g}ltig f}r MDrive-DirLabels
 Cache	equ	true		; Code- und Daten-Cache freigeben
 Ints	equ	i$c + i$ct0	; freizugebende Interrupts: INTC und Timer 0
 
+CcpBase	equ	3000h		; CCP.COM ab 3000h im EPROM abgelegt
 SysBase	equ	4000h		; CPM3.SYS ab 4000h im EPROM abgelegt
 
 ;*****************************************************************
@@ -390,6 +392,7 @@ DrvIn1:	pop	hl
 	jr	nc,NotDsk
 	out	(Mot_On),a	; dann Laufwerksmotor anschalten!
 NotDsk:	ld	(SysFCB),a	; Laufwerk im Boot-FCB speichern
+	ld	(CcpFCB),a	; WBW 2017-03-08 CCP FCB also
 	add	a,'A'-1
 	ld	(BootDrv),a	; Laufwerksbezeichner in SignOn einsetzen
 	call	PMsg		; Signon-Meldung ausgeben
@@ -415,8 +418,38 @@ NotDsk:	ld	(SysFCB),a	; Laufwerk im Boot-FCB speichern
 	call	Load		; Residenten Teil laden
 	ld	bc,(Header+2)	; Banked TopPage+1 in C, Length in B
 	call	Load		; gebankten Teil laden
+	; WBW 20170308: Load and cache CCP from disk
+	ld	c,15		; File open function
+	ld	de,CcpFCB	; CCP FCB pointer
+	call	LDOS		; DOS 15 : Open File
+	inc	a		; Test for ret val of FFh
+	jp	z,NoCcp		; Handle file open error
+	ld	b,32		; Limit to 1000H (32 128-byte recs)
+	ld	c,0		; Init rec count to 0
+	ld	de,CcpBase	; Overlay copy from ROM
+	call	LdCcp		; Load CCP image
+	ld	a,c		; Loaded rec cnt to accum
+	or	a		; Test for 0
+	jp	z,NoCcp		; Error if nothing read
+	ld	hl,SavCcp	; Set up to copy CCP to cache
+	call	DmaSet		; Do it
+	; WBW 20170308: End modification
 	ld	hl,(Header+4)	; Einsprungadresse f}r BOOT (im System!)
 	jp	GoSys		; ab geht's ins neu gebootete System...
+
+; DMA Parm Block to Save CCP at 83F000H
+; WBW 2017-03-08: A copy of the CCP image is now cached in RAM so that
+; a cached copy is available for both ROM and disk boot scenarios.
+
+SavCcp:	defb	dal3		; DMA 3
+	defw	0F000h
+	defb	83h		; Dest 83F000h
+	defw	3000h
+	defb	81h		; Src 813000h
+	defw	800h		; Length max. 2k Words (=4 KB)
+	defw	1000001100000000b ; Words MEM -> MEM, Cont., Enable
+
+; WBW 2017-03-08: End modification
 
 ; Eigentlicher Lader. L{dt Teil des Systems in den Speicher.
 ; TopPage+1 in C, Anzahl Pages in B.
@@ -435,6 +468,26 @@ LdLoop:	ld	hl,-128
 	pop	de
 	djnz	LdLoop		; alle angegebenen Sektoren lesen
 	ret
+
+; WBW 2017-03-08: Load CCP image from disk, max records to read in B,
+; increment C to reflect records read
+
+LdCcp:	push	de		; Save DE
+	push	bc		; Save BC
+	call	SDMA		; Set read DMA location
+	call	RdCcp		; Read one record to DMA
+	pop	bc		; Recover BC
+	pop	de		; Recover DE
+	or	a		; Test ret val
+	ret	nz		; If <> 0, EOF, return
+	inc	c		; Bump rec read cnt
+	ld	hl,128		; HL := rec len
+	add	hl,de		; Bump DMA location
+	ex	de,hl		; And put back in DE
+	djnz	LdCcp		; Loop unless max
+	ret
+
+; WBW 2017-03-08: End modification
 
 ; \fters ben|tigte LDOS-Funktionen: DMA setzen, Sequential Read.
 
@@ -456,10 +509,29 @@ NoSys:	ld	hl,NotFnd
 	di
 	jr	$		; CPU stoppen
 
+; WBW 2017-03-08: Add supporting read and error routines
+; to handle loading of CCP from disk.
+
+RdCcp:	ld	c,20
+	ld	de,CcpFCB
+	call	LDOS		; DOS 20 : Read Sequential
+	ret
+
+NoCcp:	ld	hl,CcpErr	; Point to error message
+	call	PMsg		; Print it
+	di			; No more interrupts
+	jr	$		; Stop system
+
+; WBW 2017-03-08: End modification
+
 ; FCB zum Lesen des System-Files.
 
 sysfcb:	defb	0,'CPM3    SYS',0,0,0,0,0,0,0,0,0,0,0,0,0,0
 	defb	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+; WBW 2017-03-08: Add FCB for CCP disk loading
+ccpfcb:	defb	0,'CCP     COM',0,0,0,0,0,0,0,0,0,0,0,0,0,0
+	defb	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+; WBW 2017-03-08: End modification
 
 ;*****************************************************************
 ;**	Booten aus dem EPROM					**
@@ -484,7 +556,10 @@ BootEpr:xor	a
 	call	PMsg		; Signon vervollst{ndigen: Boot aus EPROM
 	ld	a,(restop)	; CPM3.SYS im EPROM ?
 	or	a
-	jr	nz,NoSys	; Resident Top Page +1 nicht 00 : Fehler
+; WBW 2017-03-08: Switch from jr -> jp, relative jump no longer in range
+;	jr	nz,NoSys	; Resident Top Page +1 nicht 00 : Fehler
+	jp	nz,NoSys	; Resident Top Page +1 nicht 00 : Fehler
+; WBW 2017-03-08: End modification
 	ld	hl,TpaMsg
 	call	PMsg		; TPA-Meldung aus 2. "Sektor"
 
@@ -529,6 +604,11 @@ LdLp2:	ld	(DstAdr),de	; Zieladresse einsetzen
 	lda	hl,(hl--80h)
 	ex	de,hl		; Ziel - 80h
 	djnz	LdLp2
+; WBW 2017-03-08: Copy ROM-based CCP image to new common RAM-based
+; cache location that supports both ROM and disk loading of CCP
+	ld	hl,SavCcp
+	call	DmaSet
+; WBW 2017-03-08: End modification
 	ld	hl,(Start)
 	jp	GoSys		; GlobVar setzen, dann ins System springen
 
@@ -778,31 +858,39 @@ GlobVar:defs	10		; 5 Word: I/O Redirection Vektoren f}r SCB
     if deutsch
 TstMsg:	defm	CR,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF
 	defm	LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF
-	defm	'Kaltstart-Programm V1.13 TR 950314',CR,LF
+	defm	'CPU280 Kaltstart-Programm V1.2 RBC 8-Mar-2017',CR,LF
+	defm	'http://www.retrobrewcomputers.org',CR,LF
+	defm	'beyogen auf Kaltstart-Programm V1.13 TR 950314',CR,LF
 	defz	'Dr}cke DEL f}r SETUP.',CR,LF
 FatMsg:	defz	CR,LF,'Fataler Fehler: nicht genug RAM'
 OkMsg:	defz	'k RAM ok'
-SignOn:	defm	CR,LF,LF,'CP/M-3 Lader V1.13',CR,LF
+SignOn:	defm	CR,LF,LF,'CP/M-3 Loader V1.2 RBC 8-Mar-2017',CR,LF
+	defm	'beyogen auf CP/M-3 Loader V1.13',CR,LF
 	defm	'Lade System von '
 BootFrm:defm	'Laufwerk '
 BootDrv:defz	'X:',CR,LF
 Eprom:	defz	'EPROM',CR,LF
 NotFnd:	defz	BEL,'Fehler: System nicht ladbar',CR,LF
+CcpErr:	defz	BEL,'Fehler: CCP nicht ladbar',CR,LF
     endif
 
     if english
 TstMsg:	defm	CR,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF
 	defm	LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF
-	defm	'Cold Loader Program V1.13 TR 950314',CR,LF
+	defm	'CPU280 Boot Loader V1.2 RBC 8-Mar-2017',CR,LF
+	defm	'http://www.retrobrewcomputers.org',CR,LF
+	defm	'based on Cold Loader Program V1.13 TR 950314',CR,LF
 	defz	'Press DEL to run SETUP.',CR,LF
 FatMsg:	defz	CR,LF,'Fatal Error: not enough RAM'
 OkMsg:	defz	'k RAM ok'
-SignOn:	defm	CR,LF,LF,'CP/M-3 Loader V1.13',CR,LF
+SignOn:	defm	CR,LF,LF,'CP/M-3 Loader V1.2 RBC 8-Mar-2017',CR,LF
+	defm	'based on CP/M-3 Loader V1.13',CR,LF
 	defm	'Booting system file from '
 BootFrm:defm	'drive '
 BootDrv:defz	'X:',CR,LF
 Eprom:	defz	'EPROM',CR,LF
-NotFnd:	defz	BEL,'Error: system not loadable',CR,LF
+NotFnd:	defz	BEL,'Error: System not loadable',CR,LF
+CcpErr:	defz	BEL,'Error: CCP not loadable',CR,LF
     endif
 
 	end

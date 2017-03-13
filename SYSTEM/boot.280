@@ -7,6 +7,7 @@
 	.list
 
 ; 930227 Tilmann Reh
+; 170308 Wayne Warthen
 
 Ints	equ	i$c + i$ct0	; freizugebende Interrupts
 
@@ -65,6 +66,13 @@ CI_Lp:	push	bc
 	ld	a,5
 	ld	(de),a		; Temporary Drive E:
 	ld	(SCB+18h),8	; Search Order COM,SUB
+	; WBW 20170305: Patch boot drive from NVRAM into current OS drive
+	in	a,(s$bdrv)	; Get NVRAM boot drive (assumes iopage=BoardP)
+	cp	16		; Compare to max possible CP/M drive letter
+	jr	nc,CurByp	; If over max, bypass SCB update
+	ld	(SCB+13h),a	; Update SCB field ccp$curdrv
+CurByp:				; Bypass current drive update
+	; WBW 20170305: End modification
 	ld	hl,SignOn
 	call	PMsg		; Anfangs-Signon ausgeben
 
@@ -88,6 +96,10 @@ DrvIn1:	pop	hl
 	inc	hl
 	inc	hl		; Zeiger auf n{chste XDPH-Adresse
 	djnz	DrvIni		; weiter bis alle Laufwerke bearbeitet
+	; WBW 20170308: Add a blank line to improve formatting
+	ld	hl,NewLin
+	call	PMsg
+	; WBW 20170308: End modification
 	jp	WBoot		; CCP laden, Spr}nge setzen, CCP starten
 
 ; System-Call-UP zum Nachladen des CCP und Initialisierung der Einspr}nge.
@@ -214,6 +226,7 @@ ClcLp:	addw	hl,0F000h
 ; System-Mode nur PDR's 0 und 1 (ben|tigt f}r Diskio-Invert).
 ; User-Mode alle Werte f}r Bank 1..4 f}r PDR's 0..14 (PDR 15 = Common).
 ; Ab physikalischer Adresse 840000 Access Violation (MDrive)!
+; WBW 20170308: 83F000-83FFFF now reserved for CCP reload copy!
 
 SysMMU::defw	810Ah,811Ah	; System-PDRs 0 und 1 im Originalzustand
 
@@ -223,7 +236,7 @@ UsrMMU::defw	800Ah,801Ah,802Ah,803Ah,804Ah,805Ah,806Ah,807Ah ; Bank 1
 	defw	827Ah,828Ah,829Ah,82AAh,82BAh,82CAh,82DAh
 	defw	82EAh,82FAh,830Ah,831Ah,832Ah,833Ah,834Ah,835Ah ; Bank 3
 	defw	836Ah,837Ah,838Ah,839Ah,83AAh,83BAh,83CAh
-	defw	83DAh,83EAh,83FAh,8406h,8416h,8426h,8436h,8446h ; Bank 4
+	defw	83DAh,83EAh,83F6h,8406h,8416h,8426h,8436h,8446h ; Bank 4
 	defw	8456h,8466h,8476h,8486h,8496h,84A6h,84B6h
 
 ;***********************************************************************
@@ -258,13 +271,14 @@ DmaSet::ld	b,l
 ;***********************************************************************
 
 ; DMA-Parameterbl|cke f}r Move-Operationen
+; WBW 20170308: Updated to restore CCP from RAM cache at 83F000h
 
 RstCCP:	defb	dal3		; DMA 3
 	defw	TPA
 	defb	80h		; Dest 800100
-	defw	EprCCP
-	defb	0		; Src 00xxxx
-	defw	1000h		; Length max. 4k Words (=8 KB)
+	defw	0F000h
+	defb	83h		; Src 83xxxx
+	defw	800h		; Length max. 2k Words (=4 KB)
 	defw	1000001100000000b ; Words MEM -> MEM, Cont., Enable
 
 Xfer:	defb	dal3		; DMA 3
@@ -281,7 +295,16 @@ SPSav:	defs	2		; Zwischenspeicher f}r SP bei SELMEM
 
 	dseg			; Text darf in Bank 0 sein
 
-SignOn:	defz	cr,lf,'CP/M-3 BIOS V1.13 TR 950314',cr,lf
+SignOn:	defm	cr,lf,'CP/M-3 BIOS V1.2 RBC 8-Mar-2017',cr,lf
+	defm	'http://www.retrobrewcomputers.org',cr,lf
+    if deutsch
+	defz	'beyogen auf CP/M-3 BIOS V1.13 TR 950314',cr,lf,lf
+    endif
+    if english
+	defz	'based on CP/M-3 BIOS V1.13 TR 950314',cr,lf,lf
+    endif
+
+NewLin:	defz	cr,lf
 
 	end
 
