@@ -18,12 +18,14 @@ ZPM/ZCCP is an operating system created by Simeon Cran that provides compatibili
 
 There are 4 directories in the respository:
 
-- **SYSTEM:** contains both the ROM firmware and the CP/M Plus OS adaptation
-- **FORMAT:** contains a custom floppy disk formatting tool for the CPU280
-- **ZPM3:** contains the ZPM OS adaptation
-- **ZCCP:** contains the ZCCP Command Processor that pairs with ZPM3
-- **Tools:** contains assorted programs used to build the software via Windows command line
-- **Floppy:** contains scripts and files to create bootable floppy images
+| Directory | Description |
+| --- | --- |
+| **SYSTEM** | contains both the ROM firmware and the CP/M Plus OS adaptation |
+| **FORMAT** | contains a custom floppy disk formatting tool for the CPU280 |
+| **ZPM3** | contains the ZPM OS adaptation |
+| **ZCCP** | contains the ZCCP Command Processor that pairs with ZPM3 |
+| **Tools** | contains assorted programs used to build the software via Windows command line |
+| **Floppy** | contains scripts and files to create bootable floppy images |
 
 ## Build Process
 
@@ -36,15 +38,15 @@ specified order.  Some directories also have ReadMe.txt files that provide addit
 
 To build the firmware and software, but the "Build" command in these directories in this order:
 
-- **FORMAT:** Creates the format.com program.  This build utilizes Turbo Pascal and requires manual
+1. **FORMAT:** Creates the format.com program.  This build utilizes Turbo Pascal and requires manual
 intervention -- see ReadMe.txt for more information.
-- **SYSTEM:** Creates the ROM firmware for system booting and includes a ROM-based version of CP/M Plus.
+2. **SYSTEM:** Creates the ROM firmware for system booting and includes a ROM-based version of CP/M Plus.
 The files system.odd and system.evn are produced in this step which are the odd and even portions
 of the ROM firmware.  This step also produces the cpm3.sys program for inclusion on floppy boot disks.
-- **ZPM3:** Creates the ZPM/ZCCP variant of the system.  It produces version of system.odd and system.evn
+3. **ZPM3:** Creates the ZPM/ZCCP variant of the system.  It produces version of system.odd and system.evn
 that can be used as system ROM firmware if you want to boot ZPM/ZCCP from ROM.  This step also produces
 a variant of cpm3.sys which contains the ZPM for inclusion on boot floppy disks.
-- **Floppy:** Creates boot floppy images.  Two floppy images are created: 1) CP/M Plus, and 2) ZPM/ZCCP.
+4. **Floppy:** Creates boot floppy images.  Two floppy images are created: 1) CP/M Plus, and 2) ZPM/ZCCP.
 Both images are bootable and can be written to a standard IBM 1.44MB formatted floppy disk with a tool
 such as RawWrite for Windows.
 
