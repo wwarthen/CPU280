@@ -16,7 +16,7 @@ ZPM/ZCCP is an operating system created by Simeon Cran that provides compatibili
 
 ## Repository Contents
 
-There are 4 directories in the respository:
+The contents of the repository are organized into the following directories:
 
 | Directory | Description |
 | --- | --- |
@@ -36,16 +36,16 @@ In general, the software and firmware is built by opening a command prompt and i
 in each of the following directories.  The build process has depencies, so it is necessary to follow the
 specified order.  Some directories also have ReadMe.txt files that provide additional information.
 
-To build the firmware and software, but the "Build" command in these directories in this order:
+To build the firmware and software, run the "Build" command in these directories in the order listed:
 
 1. **FORMAT:** Creates the format.com program.  This build utilizes Turbo Pascal and requires manual
 intervention -- see ReadMe.txt for more information.
 2. **SYSTEM:** Creates the ROM firmware for system booting and includes a ROM-based version of CP/M Plus.
 The files system.odd and system.evn are produced in this step which are the odd and even portions
 of the ROM firmware.  This step also produces the cpm3.sys program for inclusion on floppy boot disks.
-3. **ZPM3:** Creates the ZPM/ZCCP variant of the system.  It produces version of system.odd and system.evn
+3. **ZPM3:** Creates the ZPM/ZCCP variant of the system.  It produces versions of system.odd and system.evn
 that can be used as system ROM firmware if you want to boot ZPM/ZCCP from ROM.  This step also produces
-a variant of cpm3.sys which contains the ZPM for inclusion on boot floppy disks.
+a variant of cpm3.sys which contains ZPM for inclusion on boot floppy disks.
 4. **Floppy:** Creates boot floppy images.  Two floppy images are created: 1) CP/M Plus, and 2) ZPM/ZCCP.
 Both images are bootable and can be written to a standard IBM 1.44MB formatted floppy disk with a tool
 such as RawWrite for Windows.
