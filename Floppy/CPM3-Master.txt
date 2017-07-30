@@ -46,12 +46,13 @@ Contents:
 	dev.com		Device parameter management
 	format.com	Format floppy disk in many supported formats
 	format.dat	Floppy format definitions file for format.com
+	idetest.com	Testing utility for IDE interface (German language)
 
   - Third party utilities.
 
-	du34.com	Read/write/modify low-level disk sector contents
+	du.com		Read/write/modify low-level disk sector contents
 	lbrext.com	Extract files from .lbr library archives
-	mbasic.com	Microsoft BASIC programming language
+	mbasic.com	Microsoft BASIC interpreter
 	msdir.com	MS-DOS directory lister (German language)
 	msdos.com	MS-DOS file copy utility (German language)
 	msform.com	MS-DOS disk formatter (German language)
@@ -73,3 +74,8 @@ Contents:
 
 - Added MS-DOS tools (msdir.com, msdos.com, and msform.com).  These 
   tools are in German.
+
+2017/07/30 Changes:
+
+- Upgraded du.com to version 0.89
+- Added idetest.com

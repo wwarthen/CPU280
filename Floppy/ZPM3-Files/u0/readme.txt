@@ -3,7 +3,7 @@
 
 This is a basic ZPM 3 system disk.  It is similar to a CP/M 3
 System Disk, but the system files have been replaced with
-ZPM and ZCCP.  A few key Z3 utilities have been included.
+ZPM and ZCCP variants.  A few key Z3 utilities have been included.
 All of the DRI CP/M 3 files are still included as well.
 
 Notes:
@@ -13,7 +13,7 @@ Notes:
   in the CPU280 ROM setup will be used to load ZPM/ZCCP, but they
   will fail to load properly if they are not loaded from drive A.
   It is possible to work around this, but it takes explicit hand tuning
-  of your system that is beyond the scope of this document.
+  of ZPM that is beyond the scope of this document.
 
 - Unlike CP/M, it is conventional with ZCCP to place files into
   distinct user areas based on their function.  Executable programs
@@ -35,13 +35,16 @@ Notes:
  
 Contents:
 
-  - ZPM/ZCCP boot files.  Note that the files are named the same
-    as their CP/M 3 coutnerparts, but the contents are completely
-    different.  It is necessary to use the same names so that the
-    ROM boot loader will load them properly.
+  - ZPM/ZCCP boot/config files.  Note that ccp.com and cpm3.sys are
+    named the same as their CP/M 3 counterparts, but the contents are
+    completely different.  It is necessary to use the same names so
+    that the ROM boot loader will load them properly.
 
 	ccp.com		ZCCP Command Processor
 	cpm3.sys	ZPM Disk Operating System
+	names.ndr	Named directory data segment
+	tcap.z3t	Terminal capabilities data segment
+
 	
   - ZPM/ZCCP are distributed with a few tools.  These are:
 
@@ -49,7 +52,8 @@ Contents:
 	clrhist.com	Clear command history buffer
 	setz3.com	Set env address in ZPM SCB for Z3Plus
 	loadseg.com	Loader for named directories and termcaps
-	zinstal.com	Segment containing environment information
+	zinstal.zpm	Segment containing environment information
+	startzpm.com	Startup commands (view/edit w/ alias or salias)
 	diskinfo.com	Disk information display utility
 	rsxdir.com	Displays RSXes in memory
 
@@ -58,20 +62,26 @@ Contents:
     not really a "standard" suite of programs.  The following
     selected set of Z System programs has been included:
 
+	alias.com	View/edit batch command files
 	arunz.com	Extended command processor with command aliases
-	zerase.com	Enhanced file erase utility
+	copy.com	Enhanced file copy utility
+	goto.com	Enhances zex with label branching support
+	if.com		Conditional command processor
 	mkdir.com	Named directory management tool
-	salias.com	Batch command processor
+	remove.com	Forcibly removes zex from memory
+	sainst.com	Configuration tool for salias.com
+	salias.com	View/edit batch command files (full screen)
 	setpath.com	Search path management tool
-	zshow.com	Environment display tool
 	verror.com	Error handler allowing command line editting
 	vlu.com		Visual library management utility
-	if.com		Conditional command processor
 	zcnfg.com	Program configurator
+	zerase.com	Enhanced file erase utility
 	zex.com		Sophisticated batch command language
-	zp.com		File patching tool
-	zhelp.com	Z3 Help display tool
 	zfiler.com	File management shell
+	zhelp.com	Z3 Help display tool
+	zp.com		File patching tool
+	zshow.com	Environment display tool
+	zxd.com		Z3 enhanced directory lister
 
     Some of the programs above can be customized using a command like:
 
@@ -104,15 +114,21 @@ Contents:
 	dev.com		Device parameter management
 	format.com	Format floppy disk in many supported formats
 	format.dat	Floppy format definitions file for format.com
+	idetest.com	Testing utility for IDE interface (German language)
 
   - Third party utilities.
 
-	du34.com	Read/write/modify low-level disk sector contents
+	du.com		Read/write/modify low-level disk sector contents
 	lbrext.com	Extract files from .lbr library archives
-	mbasic.com	Microsoft BASIC programming language
+	mbasic.com	Microsoft BASIC interpreter
 	msdir.com	MS-DOS directory lister (German language)
 	msdos.com	MS-DOS file copy utility (German language)
 	msform.com	MS-DOS disk formatter (German language)
 	nulu.com	Manage .lbr library archives
 	zde.com		Full screen editor
 	zsid.com	Variant of SID w/ support for Z80 mnemonics
+
+2017/07/30 Changes:
+
+- Upgraded du.com to version 0.89
+- Added idetest.com
