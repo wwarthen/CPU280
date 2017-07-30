@@ -36,6 +36,10 @@ In general, the software and firmware is built by opening a command prompt and i
 in each of the following directories.  The build process has depencies, so it is necessary to follow the
 specified order.  Some directories also have ReadMe.txt files that provide additional information.
 
+If your system has more than just the CPU280 board, you **must** update the loader.mac and system.mac files
+in the SYSTEM directory.  For example, if you want support for an IDE board, you need to change the "ide"
+equate from false to true in **both** files.
+
 To build the firmware and software, run the "Build" command in these directories in the order listed:
 
 1. **FORMAT:** Creates the format.com program.  This build utilizes Turbo Pascal and requires manual
@@ -43,6 +47,7 @@ intervention -- see ReadMe.txt for more information.
 2. **SYSTEM:** Creates the ROM firmware for system booting and includes a ROM-based version of CP/M Plus.
 The files system.odd and system.evn are produced in this step which are the odd and even portions
 of the ROM firmware.  This step also produces the cpm3.sys program for inclusion on floppy boot disks.
+Make sure to verify/edit the loader.mac and system.mac files before running "Build" here.
 3. **ZPM3:** Creates the ZPM/ZCCP variant of the system.  It produces versions of system.odd and system.evn
 that can be used as system ROM firmware if you want to boot ZPM/ZCCP from ROM.  This step also produces
 a variant of cpm3.sys which contains ZPM for inclusion on boot floppy disks.
