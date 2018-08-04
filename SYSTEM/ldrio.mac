@@ -1,22 +1,30 @@
 ; 041190 Tilmann Reh
-; Makro-Datei f}r Character-I/O innerhalb CPU280-Boot-Loader
-; Alle Konsolenoperationen benutzen diese Makros, so da~ Anpassung
-; an andere Terminals EINZIG HIER erfolgen mu~.
 
-; Diese Version steuert die CPU-interne serielle Schnittstelle an.
-; Baudratengenerator ist CT1. Default-Einstellung:
+; 10-July-2018 Tony Nicholson
+; Comments translated from German to English (using Google
+; Translate with some appropriate language adjustments resulting
+; from an examination of the instruction sequences).  Also
+; corrected the syntax to be compatible with Hector Peraza's
+; ZSM4 Z80/Z180/Z280 assembler 
 
-def1h	equ	11000100b	; Default 8+n+1, kein Handshake
+; Macros for Character-I/O for use by the CPU280-Boot-Loader.
+; All console operations use these macros, so that customisation
+; to other Terminals MUST BE DONE HERE.
+
+; This version drives the CPU internal serial interface using the
+; internal Clock Timer CT1 for baud rate generation.
+
+def1h	equ	11000100b	; Default 8N1, with no flowcontrol
 def1bd	equ	14		; Default 9600 Baud
 
 ;***********************************************************************
-;**           Initialisierung der Konsolenschnittstelle               **
+;**           Initialise the Console Interface                        **
 ;***********************************************************************
 
-; Eingang mit CPU-Taktfaktor (x 614400 Hz) in B.
-; Alle Register au~er SP d}rfen verwendet werden.
+; Entry with the CPU clock factor (x 614400 Hz) in B.
+; All Registers except SP may be used.
 
-; noch fest auf 19200 Baud. --> Setup!
+; Still stuck at 19200 Baud. --> Setup!
 
 chrnit:	macro
 	local	ct1tab,exit
@@ -26,39 +34,39 @@ chrnit:	macro
 	add	a,a
 	exts	a		; 2* Baud in HL
 	in	a,(s$c1h)
-	ldw	hl,(hl+ct1tab-2) ; normierter Teilerfaktor (*256) in HL
-	ld	c,0		; CPU-Frequenz *256 nach BC
-	multuw	hl,bc		; Ergebnis (/65536) in DE
-	ld	b,a		; Hardware-Parameter nach B
+	ldw	hl,(hl++ct1tab-2) ; Normalise the divisor (*256) in HL
+	ld	c,0		; CPU frequency *256 to BC
+	multuw	hl,bc		; Multiply (/65536) result in DE
+	ld	b,a		; Hardware Parameter to B
 	iopage	ctp
-	ex	de,hl		; Vorteilerwert --> HL
-	dec	hl		; -1 f}r Time Constant Register
+	ex	de,hl		; Prescaler --> HL
+	dec	hl		; -1 for Time Constant Register
 	ld	c,tc1
-	outw	(c),hl		; neue 'Time Constant' f}r CT1
+	outw	(c),hl		; new 'Time Constant' for CT1
 	ld	a,10001000b
 	out	(cr1),a		; CT1: Cont. Timer, Output
 	ld	a,11100000b
 	out	(cs1),a		; CT1 Enable
-	ld	a,b		; Hardware-Parameter
+	ld	a,b		; Hardware Parameter
 	rrca
-	rrca			; Bits 7..4 enthalten jetzt Bits 1076
+	rrca			; Bits 7..4 now contains bits 1076
 	rept	4
 	rla
 	rr	d
-	endm			; D(7..4) enth{lt Bits 6701
+	endm			; D(7..4) has bits 6701
 	ld	a,d
 	and	0F0h
-	or	00001010b	; Konstanten dazu
+	or	00001010b
 	out	(ucr),a		; UART Control Register
 	ld	a,b
-	and	00001000b	; Bit 3 isolieren (Stopbits)
+	and	00001000b	; Isolate bit 3 (Stopbits)
 	rlca			; --> Bit 4
 	or	10000001b
 	out	(tcs),a		; Transmitter Control
 	ld	a,10000000b
 	out	(rcs),a		; Receiver Control
 	in	a,(rdr)
-	in	a,(rdr)		; RX leersaugen
+	in	a,(rdr)		; RX empty
 	jr	exit
 
 ct1tab:	defw	64,32768,22342,18273,16384,8192,4096,2048,1366,1024,683,512,342,256,128
@@ -67,48 +75,48 @@ exit:
 	endm
 
 ;***********************************************************************
-;**                 Zeichenausgabe an Konsole                         **
+;**                 Console Character Output                          **
 ;***********************************************************************
 
-; Die Erstregister d}rfen nicht ver{ndert werden, es darf kein RAM benutzt
-; werden. Benutzt werden d}rfen: AF und die Zweitregister BC' und HL'.
+; The primary registers may not be changed, and we don't use any RAM.
+; You may use: AF and the secondary registers BC' and HL'.
 
 outchr	macro	data
 	local	outc1,outc2,outc3
-	exx			; -> Zweitregister
+	exx			; -> switch registers
 	iopage	boardp
-	in	a,(s$c1h)	; Hardware-Parameter CRT1
-	bit	5,a
-	jr	z,outc2		; kein Handshake: CTS nicht pr}fen
+	in	a,(s$c1h)	; Hardware Parameter CRT1
+	bit	5,a		; Test flow control bit
+	jr	z,outc2		; no Handshake: do not check CTS
 outc1:	in	a,(gpi)
 	bit	b$cts1,a
-	jr	nz,outc1	; warten auf CTS
+	jr	nz,outc1	; wait for CTS
 outc2:	iopage	uartp
 outc3:	in	a,(tcs)
 	rra
-	jr	nc,outc3	; warten auf BE
-	exx			; -> Erstregister
+	jr	nc,outc3	; wait for Buffer Empty (BE)
+	exx			; -> back to primary registers
 	ld	a,data
-	out	(tdr),a		; Zeichen ausgeben
+	out	(tdr),a		; Output the character
 	endm
 
 ;***********************************************************************
-;**                 Zeicheneingabe von Konsole                        **
+;**                 Character input from Console                      **
 ;***********************************************************************
 
-; Makro zum Pr}fen auf empfangenes Zeichen (und einlesen desselben).
-; Antwort mit Zeichen in A oder CY gesetzt.
-; Keine Verwendungseinschr{nkungen.
+; Macro to check for (and Read in) the received character.
+; Result returned in A or CY set if none.
+; No usage restrictions.
 
-inchar:	macro			;; ':' wegen PRE280 Interpretationsfehler
+inchar	macro
 	local	exit
 	iopage	uartp
 	in	a,(rcs)		; UART Status Register
 	bit	4,a		; Character available ?
 	scf
-	jr	z,exit		; nein: Exit mit CY gesetzt
-	in	a,(rdr)		; Zeichen lesen
-	or	a		; CY l|schen
+	jr	z,exit		; no: Exit with CY set
+	in	a,(rdr)		; Read character
+	or	a		; clear CY
 exit:
 	endm
 

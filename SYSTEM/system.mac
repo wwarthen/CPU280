@@ -4,6 +4,13 @@
 ;**  950122 Tilmann Reh                                               **
 ;***********************************************************************
 
+; 10-July-2018 Tony Nicholson
+; Comments translated from German to English (using Google
+; Translate with some appropriate language adjustments resulting
+; from an examination of the instruction sequences).  Also
+; corrected the syntax to be compatible with Hector Peraza's
+; ZSM4 Z80/Z180/Z280 assembler 
+
 ; Boolean constants:
 
 false	equ	0

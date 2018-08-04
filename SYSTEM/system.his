@@ -154,4 +154,7 @@ V1.20 of 8 March 2017:
   of where ccp.com is loaded from, it is now cached in RAM at a common
   location.
 
-
+V1.21 of 4 August 2018
+- Converted to build with ZSM contributed by Hector Peraza.
+- Comments converted to English by Tony Nicholson.
+

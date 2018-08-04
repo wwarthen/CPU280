@@ -8,65 +8,72 @@
 
 ; 950131 Tilmann Reh
 
-; Allgemeine Eingabe von Parametern innerhalb eines Bereiches.
-; Bereichsanfang in D, Bereichsl{nge in E. Bei eingegebenen
-; Buchstaben wird in Gro~buchstaben konvertiert.
-; Ausgang mit eingegebenem Wert in A (normiert, ab 0).
+; 10-July-2018 Tony Nicholson
+; Comments translated from German to English (using Google
+; Translate with some appropriate language adjustments resulting
+; from an examination of the instruction sequences).  Also
+; corrected the syntax to be compatible with Hector Peraza's
+; ZSM4 Z80/Z180/Z280 assembler 
 
-Input:	call	ConIn		; Eingabe holen
+; General input of parameters within a range.
+; Range start in D, Range length in E. Entered
+; characters are converted to uppercase.
+; Output with entered value in A (normalised, from 0)
+
+Input:	call	ConIn		; Get input
 	cp	'a'
-	jr	c,Input1	; kleiner als 'a': direkt verwenden
+	jr	c,Input1	; less than 'a': use directy
 	cp	'z'+1
-	jr	nc,Input1	; gr|~er als 'z': ebenfalls
-	and	5Fh		; sonst CAPS
+	jr	nc,Input1	; greater than 'z': likewise
+	and	5Fh		; otherwise to UPPERCASE
 Input1:	sub	d
-	jr	c,Input		; Wert zu klein: weiter warten
+	jr	c,Input		; Value too small: keep waiting
 	cp	e
-	jr	nc,Input	; Wert zu gro~: weiter warten
+	jr	nc,Input	; Value too high: continue waiting
 	push	af
-	add	a,d		; wieder zur}ck zum Eingabewert
-	call	COA		; Echo an Konsole
+	add	a,d		; Back to input value
+	call	COA		; Echo to console
 	pop	af
-	ret			; Ende mit Zeichen-Wert in A
+	ret			; Return with character in A
 
-; Allgemeine Eingabe von Kennziffern:
-; erster ungueltiger Wert in E, Ausgang mit Wert in A (ab 0).
+; General input of numeric values:
+; First invalid value in E, Output with value in A (from 0).
 
 select:	call	conin
 	ld	c,a
 	sub	'0'
 	jr	c,select
 	cp	e
-	jr	nc,select	; Erlaubte Eingaben 0 .. (e-1)
+	jr	nc,select	; Permitted entries 0 .. (e-1)
 	push	af
 	call	co		; Echo
 	pop	af
-	ret			; Return mit normalisiertem Wert in A
+	ret			; Return with normalised value in A
 
-; Allgemeiner Tabellen-Verteiler f}r Menus:
+; General Table Distributor for Menus:
 
-menu:	call	select		; Eingabe 0 .. (e-1)
+menu:	call	select		; Enter 0 .. (e-1)
 	add	a,a
 	add	hl,a
-	ldw	hl,(hl)		; }ber Tabelle verteilen
+	ldw	hl,(hl)		; Index into Table
 	jp	(hl)
 
 ;***********************************************************************
-;**       Hauptmenu: Auswahl Laufwerke/Schnittstellen/Sonstiges       **
+;**       Main menu: Select Drives/ Interfaces/ Other                 **
 ;***********************************************************************
 
 hmenu::	ld	hl,h_msg
-	call	pmsg		; Auswahl-Menu
+	call	pmsg		; Selection Menu
 	ld	hl,h_tbl
 	ld	e,4
-	jp	menu		; Eingabe auswerten
+	jp	menu		; Evaluate input
 
 h_tbl:	defw	exit,dmenu,smenu,xmenu
 
-exit:	ret			; zur}ck zum Bootlader
+exit:	ret			; back to the Bootloader
 
 ;***********************************************************************
-;**                  Menu f}r Diskettenlaufwerke                      **
+;**                  Menu for Floppy Disk Drives                      **
 ;***********************************************************************
 
 dmenu:	ld	hl,def
@@ -75,150 +82,150 @@ dmenu:	ld	hl,def
 	ld	b,4
 dm1:	call	ddisp
 	inc	hl
-	djnz	dm1		; aktuelle Einstellungen anzeigen
+	djnz	dm1		; Show current settings
 	ld	hl,d_msg
-	call	pmsg		; Menu ausgeben
+	call	pmsg		; Output menu
 	ld	hl,d_tbl
 	ld	e,5
-	jp	menu		; Eingabe auswerten
+	jp	menu		; Evaluate input
 
 d_tbl:	defw	hmenu,setdrv,setdrv,setdrv,setdrv
 
-; aktuelle Laufwerkstypen anzeigen:
+; Show current Drive types;
 
 ddisp:	ld	c,tab
-	call	co		; einr}cken!
+	call	co
 	ld	a,'D'+1
 	sub	b
-	call	coa		; Laufwerksbezeichner
+	call	coa		; Drive letter
 	ld	c,':'
 	call	co
 	ld	a,(hl)		; Flag
 	push	hl
-	and	7		; untere 3 Bit : Typ
+	and	7		; lower 3 bits : Typ
 	add	a,a
 	exts	a
-	ldw	hl,(hl+t_tbl)
-	jr	z,dd2		; kein Laufwerk: nur Typ anzeigen!
+	ldw	hl,(hl++t_tbl)
+	jr	z,dd2		; no drive: only show Typ
 	cp	2*4
-	jr	z,dd1		; Typ 4: 8-Zoll-Laufwerke keine Spurzahl!
-	call	pmsg		; Typ ausgeben
-	ldw	hl,(sp+0)
-	bit	3,(hl)		; Spurenzahl-Bit
+	jr	z,dd1		; Typ 4: 8-inch drives no Track count!
+	call	pmsg		; output Typ
+	ldw	hl,(sp++0)
+	bit	3,(hl)		; Track number bit
 	ld	hl,trk0
 	jr	z,dd1
 	ld	hl,trk1
-dd1:	call	pmsg		; Spuranzahl ausgeben
-	ldw	hl,(sp+0)
-	bit	4,(hl)		; Seitenzahl-Bit
+dd1:	call	pmsg		; Output track number
+	ldw	hl,(sp++0)
+	bit	4,(hl)		; Number of sides bit
 	ld	hl,sid0
 	jr	z,dd2
 	ld	hl,sid1
-dd2:	call	pmsg		; Seitenzahl ausgeben
+dd2:	call	pmsg		; Output page number
 	pop	hl
 	ret
 
 t_tbl:	defw	typ0,typ0,typ2,typ3,typ4,typ5,typ6,typ7
 
-; Laufwerksparameter eingeben:
+; Enter drive parameters:
 
-setdrv:	rrca			; A = Eingabecode (Laufwerk)
-	ld	hl,drive0-1	; (Eingabe 1..4)
+setdrv:	rrca			; A = Input code (Drive)
+	ld	hl,drive0-1	; (Input 1..4)
 	add	hl,a
-	push	hl		; Zeiger auf dessen Parameter
+	push	hl		; Point to its Parameter
 	ld	hl,t_msg1
-	call	pmsg		; Auswahlmenu Laufwerkstypen
+	call	pmsg		; Drive types selection menu
 	ld	e,7
-	call	select		; Eingabe
+	call	select		; Input
 	cp	1
-	ccf			; CY=1 ab Wert 1
-	adc	a,0		; --> Werte 0,2..7
-	ld	d,a		; Typ nach D
-	jr	z,setd3		; kein Laufwerk: komplett Null
+	ccf			; CY=1 from value 1
+	adc	a,0		; --> Values 0,2..7
+	ld	d,a		; Typ to D
+	jr	z,setd3		; No drive: complete Null
 	cp	4
-	jr	z,setd1		; 8": Spurdichte fest	
+	jr	z,setd1		; 8": Track density fixed	
 	ld	hl,t_msg2
-	call	pmsg		; Auswahlmenu Spuranzahl
+	call	pmsg		; Number of tracks selection menu
 	ld	e,2
-	call	select		; Eingabe
+	call	select		; Input
 	or	a
-	jr	z,setd2		; 40 Spuren
-setd1:	set	3,d		; 80 Spuren
+	jr	z,setd2		; 40 Tracks
+setd1:	set	3,d		; 80 Tracks
 setd2:	ld	hl,t_msg3
-	call	pmsg		; Auswahlmenu Seitenzahl
+	call	pmsg		; Number of sides selection menu
 	ld	e,2
-	call	select		; Eingabe
+	call	select		; Input
 	or	a
-	jr	z,setd3		; 1 Seite
-	set	4,d		; 2 Seiten
+	jr	z,setd3		; 1 Side
+	set	4,d		; 2 Sides
 setd3:	pop	hl
-	ld	(hl),d		; Laufwerksbezeichner speichern
-	jp	dmenu		; wieder ins Laufwerk-Menu	
+	ld	(hl),d		; Save drive identifier
+	jp	dmenu		; Back to the Drive Menu
 
 ;***********************************************************************
-;**                   Menu f}r Schnittstellen                         **
+;**                   Menu for Interfaces                             **
 ;***********************************************************************
 
 smenu:	ld	hl,def
 	call	pmsg
 	ld	b,0
-	call	sdisp1		; Einstellung CRT1 anzeigen
+	call	sdisp1		; Show CRT1 settings
 	ld	b,1
-	call	sdisp1		; Einstellung CRT2 anzeigen
-	call	sdisp2		; aktuelle Zuordnungen anzeigen
+	call	sdisp1		; Show CRT2 settings
+	call	sdisp2		; Show current Assignments
 
 	ld	c,'0'
-	ld	hl,CTbl		; Zeiger und Nummer auf 1. Schnittstelle
+	ld	hl,CTbl		; Point to Number on 1st Interface
 CDevLp:	push	bc
-	call	ConOut		; Schnittstellen-Nummer ausgeben
+	call	ConOut		; Output Interface Number
 	ld	c,'='
 	call	ConOut		; '='
-	ld	b,6		; Device Names sind 6 Zeichen lang
+	ld	b,6		; Device Names are 6 characters
 CDevL1:	ld	c,(hl)
-	call	ConOut		; Device Name ausgeben
+	call	ConOut
 	inc	hl
 	djnz	CDevL1
 	inc	hl
-	inc	hl		; Device-Typ und Baudrate ignorieren
+	inc	hl		; Ignore Device-Typ and Baudrate
 	ld	a,(hl)
 	or	a
-	jr	z,SMenu1	; Ende der Device Tabelle: weiter mit Menu
+	jr	z,SMenu1	; End of Device Table: continue with menu
 	ld	c,' '
 	call	ConOut
-	call	ConOut		; zwei Spaces als Trennzeichen
+	call	ConOut		; Two Spaces as separators
 	pop	bc
-	inc	c		; n{chste Nummer
+	inc	c		; next device number
 	ld	a,c
-	and	3		; ganzes Vielfaches von vier?
-	jr	nz,CDevLp	; nein: einfach weiter ausgeben
+	and	3		; Whole multiple of 4?
+	jr	nz,CDevLp	; no: continue
 	push	bc
 	push	hl
 	ld	hl,NewLin
-	call	PMsg		; sonst neue Zeile anfangen
+	call	PMsg		; otherwise start a newline
 	pop	hl
 	pop	bc
-	jr	CDevLp		; weiter bis Tabellenende gefunden
+	jr	CDevLp		; Continue until the end of the table
 
-SMenu1:	pop	bc		; (Stack-Korrektur)
+SMenu1:	pop	bc		; (Stack-correction)
 	ld	hl,s_msg
-	call	pmsg		; Menu ausgeben
+	call	pmsg		; Output menu
 	ld	hl,s_tbl
 	ld	e,6
-	jp	menu		; Eingabe auswerten
+	jp	menu		; Evaluate input
 
 s_tbl:	defw	hmenu,seth,seth,setb,setb,setdev
 
-; CRT-Parameter anzeigen (Hardware-Einstellungen und Baudrate):
+; Display CRT Parameters (Hardware-Settings and Baudrate):
 
 sdisp1:	ld	hl,crt1m
 	bit	0,b
 	jr	z,sd1
 	ld	hl,crt2m
-sd1:	call	pmsg		; Meldung CRT1: oder CRT2:
+sd1:	call	pmsg		; Output CRT1: or CRT2:
 	ld	a,b
-	add	a,a		; Device Nummer *2 in A (0..2)
+	add	a,a		; Device Number *2 in A (0..2)
 	ld	hl,crt1h
-	add	hl,a		; Zeiger auf Hardware-Flags
+	add	hl,a		; Point to Hardware-Flags
 	ld	c,(hl)
 	xor	a
 	rl	c
@@ -226,8 +233,8 @@ sd1:	call	pmsg		; Meldung CRT1: oder CRT2:
 	rl	c
 	rla			; Bit 6 --> A0, A7 -> CY
 	rla			; Bit 6 in A1, Bit 7 in A0
-	add	a,'5'		; Anzahl Bits in A (ASCII)
-	call	coa		; ausgeben
+	add	a,'5'		; Number of bits in A (ASCII)
+	call	coa		; Ouput
 	ld	c,'+'
 	call	co
 	ld	c,'n'
@@ -237,242 +244,242 @@ sd1:	call	pmsg		; Meldung CRT1: oder CRT2:
 	bit	1,(hl)		; Parity Odd ?
 	jr	z,sd2
 	ld	c,'e'
-sd2:	call	co		; Parity ausgeben
+sd2:	call	co		; Show parity
 	ld	a,(hl)
-	and	0Ch		; Anzahl Stopbits (shl 2)
-	xor	04h		; --> 1.5 am Ende (wegen Textl{nge!)
+	and	0Ch		; Number of Stopbits (shl 2)
+	xor	04h		; --> 1.5 at the end (because of text length)
 	ex	de,hl
 	ld	hl,crtsm
 	add	hl,a
-	call	pmsg		; Anzahl Stopbits ausgeben
+	call	pmsg		; Output number of stopbits
 	ld	a,(de)
 	bit	5,a		; Auto Enables ?
 	ld	hl,handm
 	jr	nz,sd3
 	ld	hl,nhandm
-sd3:	call	pmsg		; Text ausgeben
+sd3:	call	pmsg		; Output Text
 	ex	de,hl
-	inc	hl		; Zeiger auf Baudrate
+	inc	hl		; Point to Baudrate
 	ld	a,(hl)
-	multu	a,6		; 6 Zeichen pro Baudrate
-	lda	hl,(hl+baudt-6)
-	call	pmsg		; Zahlenwert Baudrate ausgeben
+	multu	a,6		; 6 characters per Baudrate
+	lda	hl,(hl++baudt-6)
+	call	pmsg		; Output numeric Baudrate
 	ld	hl,baudm
-	jp	pmsg		; 'Baud' ausgeben und Ende
+	jp	pmsg		; Output 'Baud' and End
 
-; Schnittstellenzuordnungen anzeigen (Device-Vektoren):
-; Nur Ziffern von 0..9 sind erlaubt!
+; Display Interface Assignments (Device Vectors):
+; Only numbers from 0..9 are allowed!
 
 sdisp2:	ld	b,5
 	ld	ix,numtab
-	ld	hl,defci	; Zeiger auf Device-Nummern
+	ld	hl,defci	; Pointer to Device-Numbers
 sd4:	ld	a,(hl)
 	add	a,'0'		; --> ASCII
 	ldw	de,(ix+0)
-	ld	(de),a		; Zeichen in String einsetzen
+	ld	(de),a		; Insert characters in String
 	inc	ix
 	inc	ix
 	inc	hl
-	djnz	sd4		; alle 5 logischen Devices
+	djnz	sd4		; all 5 logical Devices
 	ld	hl,defmsg
-	jp	pmsg		; Text ausgeben
+	jp	pmsg		; Output Text
 
 numtab:	defw	cinum,conum,ainum,aonum,lstnum
 
-; Eingabe von Hardware-Parametern:
+; Input of Hardware Parameters:
 
 seth:	sub	2		; 2* Device 0..1 in A
 	ld	hl,crt1h
-	add	hl,a		; Zeiger auf Parameterbyte
-	push	hl		; retten
+	add	hl,a		; Pointer to Parameter byte
+	push	hl		; save
 	ld	hl,datbm
-	call	pmsg		; Frage nach Datenbits
+	call	pmsg		; Ask about Data bits
 	ld	e,4
-	call	select		; eingeben
+	call	select		; Input
 	rrca
 	rrca
-	ld	d,a		; --> Bit 7,6 von D
+	ld	d,a		; --> Bit 7,6 of D
 	ld	hl,parbm
-	call	pmsg		; Frage nach Paritybits
+	call	pmsg		; Ask about Parity bits
 	ld	e,4
-	call	select		; eingeben
+	call	select		; Input
 	or	d
-	ld	d,a		; --> Bit 1,0 von D
+	ld	d,a		; --> Bit 1,0 of D
 	ld	hl,stopbm
-	call	pmsg		; Frage nach Stopbits
+	call	pmsg		; Ask about Stop bits
 	ld	e,3
-	call	select		; eingeben
-	inc	a		; --> Wert 1..3
+	call	select		; Input
+	inc	a		; --> Value 1..3
 	rlca
 	rlca
 	or	d
-	ld	d,a		; --> Bit 3,2 von D
+	ld	d,a		; --> Bit 3,2 from D
 	ld	hl,hndm
-	call	pmsg		; Frage nach Handshake
+	call	pmsg		; Ask about flow control handshake
 	ld	e,2
-	call	select		; eingeben
+	call	select		; Input
 	rrca
 	rrca
 	rrca
 	or	d		; --> Bit 5
-	pop	hl		; Zeiger auf Parameterbyte
-	ld	(hl),a		; neuen Wert speichern
-	jp	smenu		; zur}ck zum Menu
+	pop	hl		; Pointer to Parameter byte
+	ld	(hl),a		; save new value
+	jp	smenu		; back to the menu
 
-; Eingabe der Baudrate:
+; Input the Baudrate:
 
 setb:	sub	6		; 2* Device 0..1 in A
 	ld	hl,crt1bd
-	add	hl,a		; Zeiger auf Parameterbyte
-	push	hl		; retten
+	add	hl,a		; Point to Parameter byte
+	push	hl		; save
 	ld	hl,sbaudm
-	call	pmsg		; Frage Baudrate
+	call	pmsg		; Ask for Baudrate
 	ld	d,'A'
 	ld	e,15
-	call	Input		; eingeben
-	inc	a		; wird ab 1 gez{hlt!
-	pop	hl		; Zeiger auf Parameterbyte
-	ld	(hl),a		; neuen Wert speichern
+	call	Input		; Input
+	inc	a		; is counted from 1!
+	pop	hl		; Poiner to Parameter byte
+	ld	(hl),a		; Save new value
 	jp	smenu
 
-; Eingabe der Schnittstellenzuordnungen:
+; Input of the Interface assignments:
 
 setdev:	ld	b,5
 	ld	ix,settab
 	ld	iy,defci
 sm1:	ldw	hl,(ix+0)
-	call	pmsg		; Frage ausgeben
-	ld	e,16		; Eingaben 0..15 erlaubt (offiziell 0..9)
-	call	select		; Wert eingeben
-	ld	(iy+0),a	; und speichern
+	call	pmsg		; Issue question
+	ld	e,16		; Entries 0..15 allowed (officially 0..9)
+	call	select		; Input value
+	ld	(iy+0),a	; and save
 	inc	ix
 	inc	ix
 	inc	iy
-	djnz	sm1		; alle 5 Werte abfragen
-	jp	smenu		; zur}ck zum Menu
+	djnz	sm1		; query all 5 values
+	jp	smenu		; back to the Menu
 
 settab:	defw	setci,setco,setai,setao,setlst
 
 ;***********************************************************************
-;**                     Menu f}r Sonstiges                            **
+;**                     Menu for Other Settings                       **
 ;***********************************************************************
 
 xmenu:	ld	hl,def
 	call	pmsg
 	ld	hl,sizmsg
-	call	pmsg		; Ausgabe Textbeginn
+	call	pmsg		; Output Text Beginning
 	ld	hl,(memsiz-1)
 	ld	l,0
-	add	hl,hl		; Speicher in KB in HL (Blocks * 512)
-	call	pdec		; anzeigen
+	add	hl,hl		; Memory size KB in HL (Blocks * 512)
+	call	pdec		; Show
 	ld	hl,szm
 	ld	a,(sommer)
 	or	a
-	jr	nz,xm1		; Sommerzeit: szm ausgeben
+	jr	nz,xm1		; Summertime: output szm
 	ld	hl,nzm
-xm1:	call	pmsg		; Zeitangabe
+xm1:	call	pmsg		; Time Specification
 	ld	a,(botdrv)
 	add	a,'A'
-	ld	(drvm),a	; Buchstaben f}r Bootlaufwerk einsetzen
+	ld	(drvm),a	; Boot Drive letter
 	ld	b,4
 	ld	de,chain
-	ld	hl,chnm		; Zeiger auf Quelle und Ziel
+	ld	hl,chnm		; Pointer to source and destination
 xm2:	ld	a,(de)
 	ld	c,'*'
 	or	a
-	jr	z,xm3		; Wert 0 : Default-Laufwerk
+	jr	z,xm3		; Value 0 : Default Drive
 	inc	a
-	jr	z,xm5		; Wert FF : Ende der Chain
+	jr	z,xm5		; Value FF : End of Chain
 	add	a,'A'-2
-	ld	c,a		; alle anderen (1..16) : Laufwerk (A..P)
-xm3:	ld	(hl),c		; Zeichen einsetzen
+	ld	c,a		; all others (1..16) : Drive (A..P)
+xm3:	ld	(hl),c		; Insert characters
 	inc	hl
 	inc	de
-	djnz	xm2		; alle vier Laufwerke angeben
+	djnz	xm2		; Specify all four drives
 xm4:	ld	hl,zeitm
-	call	pmsg		; Text mit Bootdrive und Chain ausgeben
+	call	pmsg		; Output Text with Bootdrive and Chain
 	ld	hl,x_msg
-	call	pmsg		; Menu ausgeben
+	call	pmsg		; Output menu
 	ld	hl,x_tbl
 	ld	e,5
-	jp	menu		; Eingabe auswerten
+	jp	menu		; Evaluate input
 
 xm5:	ld	(hl),' '
 	inc	hl
-	djnz	xm5		; restliche Stellen mit SPC f}llen
+	djnz	xm5		; Fill remaining area with SPC
 	jr	xm4
 
 x_tbl:	defw	hmenu,setsiz,setsz,setbot,setchn
 
-; Speichergr|~e
+; Set Memory Size
 
 setsiz:	ld	hl,ssizm
-	call	pmsg		; Frage ausgeben
+	call	pmsg		; Issue question
 	ld	e,4
-	call	select		; Eingabe 0..3
+	call	select		; Input 0..3
 	ld	hl,siztab
-	add	hl,a		; Zeiger auf 512k-Blockzahl
+	add	hl,a		; Pointer to 512k-Block number
 	ld	a,(hl)
-	ld	(memsiz),a	; Wert speichern
+	ld	(memsiz),a	; Save value
 	jp	xmenu
 
 siztab:	defb	1,2,4,8
 
-; Sommerzeit
+; Summer time
 
 setsz:	ld	hl,sszm
-	call	pmsg		; Frage ausgeben
+	call	pmsg		; Issue question
 	ld	e,2
-	call	select		; Eingabe 0..1
-	ld	(sommer),a	; speichern
+	call	select		; Inpute 0..1
+	ld	(sommer),a	; Save
 	jp	xmenu
 
-; Bootlaufwerk
+; Boot Drive
 
 setbot:	ld	hl,sbootm
-	call	pmsg		; Frage ausgeben
+	call	pmsg		; Issue question
 	ld	d,'A'
 	ld	e,17
-	call	Input		; Eingabe A..P (Q=EPROM)
-	ld	(botdrv),a	; speichern
+	call	Input		; Input A..P (Q=EPROM)
+	ld	(botdrv),a	; Save
 	jp	xmenu
 
 ; Drive Search Chain
 
 setchn:	ld	hl,schnm
-	call	pmsg		; Frage ausgeben
+	call	pmsg		; Issue Question
 	ld	b,4
 	ld	hl,chain
-sc1:	call	conin		; Zeichen holen
+sc1:	call	conin		; Get the sign
 	ld	c,a
 	ld	(hl),0
 	cp	'*'
-	jr	z,sc2		; Default-Laufwerk: Code 0
+	jr	z,sc2		; Default-Drive: Code 0
 	dec	(hl)
 	and	05Fh		; CAPS
 	cp	'X'
-	jr	z,sc3		; Ende: Code FF
+	jr	z,sc3		; End: Code FF
 	cp	'A'
-	jr	c,sc1		; Zeichen kleiner 'A' : ung}ltig
+	jr	c,sc1		; Character smaller than 'A' : invalid
 	cp	'P'+1
-	jr	nc,sc1		; gr|~er als 'P': auch ung}ltig
+	jr	nc,sc1		; greater than 'P': also invalid
 	sub	'A'-1		; --> Codes 1..16
 	ld	(hl),a
-sc2:	call	co		; eingegebenes Zeichen ECHO
-	inc	hl		; n{chste Position
-	djnz	sc1		; maximal vier Stellen
+sc2:	call	co		; Echo entered character
+	inc	hl		; next position
+	djnz	sc1		; maximum of four digits
 	jp	xmenu
 
 sc3:	ld	a,b
 	cp	4
-	jr	z,sc1		; an erster Stelle (B=4) Ende unzul{ssig!
+	jr	z,sc1		; in the first place (B=4) end inadmissible!
 sc31:	ld	(hl),-1
 	inc	hl
-	djnz	sc31		; verbliebene Stellen mit -1 f}llen
+	djnz	sc31		; Fill remaining places with -1
 	jp	xmenu
 
 ;***********************************************************************
-;**                          Menu-Texte                               **
+;**                          Menu Texts                               **
 ;***********************************************************************
 
 
@@ -687,30 +694,30 @@ schnm:	defm	cr,lf,tab,tab,'Search Chain: A..P=Drives, *=Default, x=Exit'
 	endif
 
 ;***********************************************************************
-;**                         Datenbereich                              **
+;**                         Data Ranges                               **
 ;***********************************************************************
 
-; Default-Einstellung bei Inbetriebnahme:
+; Default Setting at Startup:
 
-drive0::defb	00011110b	; 5.25" 80 Spuren 2 Seiten
-drive1:	defb	00011110b	; ebenso
-drive2:	defb	0		; nicht vorhanden
+drive0::defb	00011110b	; 5.25" 80 Track 2 Sides
+drive1:	defb	00011110b	; "
+drive2:	defb	0		; unavailable
 drive3:	defb	0		; "
 
-crt1h:	defb	def1h		; Defaults laut LDRIO.LIB
+crt1h:	defb	def1h		; Defaults according to LDRIO.LIB
 crt1bd:	defb	def1bd
-crt2h:	defb	def1h		; CRT2 wie CRT1
+crt2h:	defb	def1h		; CRT2 like CRT1
 crt2bd:	defb	def1bd
 defci:	defb	0
-defco:	defb	0		; CON auf CRT1
+defco:	defb	0		; CON on CRT1
 defai:	defb	1
-defao:	defb	1		; AUX auf CRT2
-deflst:	defb	1		; LST auf CRT2
+defao:	defb	1		; AUX on CRT2
+deflst:	defb	1		; LST on CRT2
 
-memsiz:	defb	0		; (wird automatisch gesetzt)
-sommer:	defb	0		; Normalzeit
-botdrv:	defb	0		; Boot von A:
-chain:	defb	0,-1,-1,-1	; Chain nur Default-Drive
+memsiz:	defb	0		; (will be set automatically)
+sommer:	defb	0		; Standard Time
+botdrv:	defb	0		; Boot from A:
+chain:	defb	0,-1,-1,-1	; Chain only Default-Drive
 
 valnum	equ	$-drive0
 public	valnum

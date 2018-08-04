@@ -1,8 +1,8 @@
 	title 'Cold Loader BIOS for CP/M 3'
 	.xlist
-	maclib	Z280EQU		; Z280 interne Register
-	maclib	CPU280		; Definitionen CPU280
-	maclib	LOADER		; Optionen
+	maclib	Z280EQU		; Z280 Internal Registers
+	maclib	CPU280		; Definitions for CPU280
+	maclib	LOADER		; Options
 	maclib	LDRIO		; Console I/O Macros
 	.list
 	.z280
@@ -10,29 +10,36 @@
 ; 950215 Tilmann Reh
 ; 170308 Wayne Warthen
 
-Day	equ	14		; Werte f}r Datum im MDrive-DirLabel
+; 10-July-2018 Tony Nicholson
+; Comments translated from German to English (using Google
+; Translate with some appropriate language adjustments resulting
+; from an examination of the instruction sequences).  Also
+; corrected the syntax to be compatible with Hector Peraza's
+; ZSM4 Z80/Z180/Z280 assembler 
+
+Day	equ	14		; Values for Date in MDrive-DirLabel
 Month	aset	03
 Year	equ	95
-	ClcDat			; Makro berechnet Datum im CP/M-3 Format
-public	Date			; global g}ltig f}r MDrive-DirLabels
+	ClcDat			; Macro calculates the date in CP/M-3 Format
+public	Date			; Global value for MDrive-DirLabels
 
-Cache	equ	true		; Code- und Daten-Cache freigeben
-Ints	equ	i$c + i$ct0	; freizugebende Interrupts: INTC und Timer 0
+Cache	equ	true		; Release code and data cache
+Ints	equ	i$c + i$ct0	; Interrupts released: except INTC and CT0
 
-CcpBase	equ	3000h		; CCP.COM ab 3000h im EPROM abgelegt
-SysBase	equ	4000h		; CPM3.SYS ab 4000h im EPROM abgelegt
+CcpBase	equ	3000h		; CCP.COM at 3000h in EPROM
+SysBase	equ	4000h		; CPM3.SYS at 4000h in EPROM
 
 ;*****************************************************************
 ;**	Interrupt / Trap Vector Table				**
 ;*****************************************************************
 
-; ITVT mu~ auf Vielfachem von 1000h liegen, in diesem Falle auf log. 0000
-; (phys. 810000 nach Kopieren ins RAM). Erster Einsprung in ITVT wird als
-; Kaltstart- Einsprung benutzt (eigentlich 'reserved').
-; Einzige unters}tzte Interrupts: FDC und interner Timer CT0.
+; ITVT must be on a 4k page boundary so it appears at logical address 0000
+; (phys. 810000h after copying to RAM). The first entry in the ITVT is
+; has the Cold Start entry - 2 words (shows as Reserved)
+; Only interrupts supported: FDC and internal Timer CT0.
 
-Cold:	di				; wegen Chipfehler. TR 160790
-	jp	Cold1			; Kaltstart-Einsprung
+Cold:	di		; Make sure interrupts disabled (ChipError). TR 160790
+	jp	Cold1			; Cold Start entry point
 
 	defw	0,xreti1		; NMI
 	defw	0,xreti1		; INTA
@@ -61,7 +68,7 @@ Cold:	di				; wegen Chipfehler. TR 160790
 	defw	0,xreti3		; EPU
 	defw	0,xreti1		; reserved
 	defw	0,xreti1		; reserved
-	; (Vektor-Tabellen entfallen)
+	; (Other vectors omitted)
 
 xreti3:	inc	sp
 	inc	sp
@@ -69,27 +76,27 @@ xreti2:	inc	sp
 	inc	sp
 xreti1:	inc	sp
 	inc	sp
-	retil			; Interrupts ignorieren
+	retil			; Ignore interrupts
 
 ;*****************************************************************
-;**	Initialisierungen: MPU, Checksum, NVRAM, Speed, Refresh **
-;**	Alles noch ohne RAM-Benutzung (keine CALL, PUSH, POP!). **
+;**	Initialisations: MPU, Checksum, NVRAM, Speed, Refresh   **
+;**	All without using RAM (no CALL, PUSH, POP!)             **
 ;*****************************************************************
 
-; Diverse Steuerregister der CPU initialisieren.
+; Initialise MPU control registers.
 
 Cold1:	ld	hl,0
 botlop:	dec	hl
 	ld	a,h
 	or	l
-	jr	nz,botlop	; Start-Up-Delay vor I/O-Zugriffen (RTC!)
+	jr	nz,botlop	; Start-Up-Delay before I/O-Access (RTC!)
 
 	iopage	boardp
-	out	(ld1_off),a	; erste LED ausschalten: CPU l{uft
+	out	(ld1_off),a	; Switch Off first LED: CPU is running
 
 	iopage	rrrp
 	ld	a,90h
-	out	(rrr),a		; Refresh vorl{ufig alle 64 CPU-Zyklen
+	out	(rrr),a		; Refresh temporarily all 64 CPU-Cycles
 
 	ld	c,btc
 	ld	l,11000011b
@@ -97,128 +104,128 @@ botlop:	dec	hl
 
 	ld	c,ccr
    if cache
-	ld	l,00101000b	; Data Cache aus (wegen RAM-Test), HM Burst on
+	ld	l,00101000b	; Data Cache off (due to RAM-Test), HM Burst on
    else
-	ld	l,01100000b	; Cache und Burst-Mode komplett aus
+	ld	l,01100000b	; Cache and Burst-Mode disabled
    endif
-	ldctl	(c),hl		; Cache Control Register setzen
+	ldctl	(c),hl		; Set Cache Control Register
 
-; 16-Bit-Pr}fsumme des EPROM ermitteln und in SP zwischenspeichern.
+; 16-Bit-Checksum the EPROM and put the result in SP.
 
-	ld	hl,0		; Zeiger
-	ld	ix,0		; Summe
-	ld	a,0E0h		; f}r Vergleich auf Bank-Ende
+	ld	hl,0		; Pointer to EPROM
+	ld	ix,0		; Total
+	ld	a,0E0h		; for End of Bank test comparison
 check:	ldw	de,(hl)
-	add	ix,de		; Wort addieren
+	add	ix,de		; Add word (16 bits at a time)
 	inc	hl
-	inc	hl		; Zeiger +2
+	inc	hl		; Point to next word
 	cp	h
 	jr	nz,check
-	ld	sp,ix		; Summe nach SP
+	ld	sp,ix		; Save sum in SP
 
-; MMU f}r Zugriff auf erste 32k EPROM setzen (0000-7FFF log=phys).
-; MMU wird nach RAM-Test komplett f}r User und System Mode neu belegt.
+; Set the MMU for access to the first 32k EPROM (0000-7FFF log=phys).
+; MMU is enabled after RAM-Test to allow User and System Mode operation.
 
 	ld	a,10h
-	out	(pdr),a		; MMU PDR Pointer: nur System Mode laden
+	out	(pdr),a		; MMU PDR Pointer: only load System Mode
 	ld	bc,8*100h+bmp
 	ld	hl,tsttab
-	otirw			; MMU PDR's 0-7 System Mode f}r RAM-Test
+	otirw			; MMU PDR's 0-7 System Mode for RAM-Test
 	ld	c,mmcr
 	ld	hl,1000100000000000b
 	outw	(c),hl		; MMU Master Control Register : MMU Enable
 
-; Falls Inbetriebnahme: Default-Einstellungen f}r CRT1 ins NVRAM schreiben,
-; damit CRT1 (falls Konsole) damit korrekt initialisiert wird (sp{ter).
+; If commisioning: Write Default-Settings for CRT1 to the NVRAM so
+; that CRT1 (if Console) is initialised corretly (later).
 
 	iopage	boardp
-	in	a,(gpi)		; User-Jumper einlesen
+	in	a,(gpi)		; Read in User-Jumper
 	bit	b$uj1,a
-	jr	z,defval	; UJ1 geschlossen: Inbetriebnahme
+	jr	z,defval	; UJ1 closed: Commissioning Set-up
 	in	a,(checklo)
 	ld	b,a
 	in	a,(checkhi)
 	and	b
-	inc	a		; NVRAM-Pr}fsumme FFFF (RTC-Reset) ?
-	jr	nz,speed	; nein: ok, Werte in NVRAM g}ltig
+	inc	a		; Is NVRAM-Checksum FFFF (RTC-Reset)?
+	jr	nz,speed	; no: ok, Assume valid values in NVRAM
 defval:	ld	a,def1h
 	out	(s$c1h),a
 	ld	a,def1bd
-	out	(s$c1bd),a	; bei Inbetriebnahme CRT1 auf Defaults
+	out	(s$c1bd),a	; otherwise set CRT1 Defaults
 
-; Automatische Erkennung der CPU-Taktfrequenz anhand der Echtzeituhr.
-; Hierzu wird generell auf 3 Wait-States geschaltet und nach der Messung
-; wieder auf den Jumper-eingestellten Wert zur}ck.
-; Bei ung}ltigem VRT-Bit: CPU stoppen, LED 2 leuchtet (LED 1&3 aus).
-; (IOPAGE ist noch Board-Page.)
+; Automatic recognition of the CPU-Clock Frequency based on the real-time
+; clock. For this test, set to 3 Wait-States then return it back to the
+; jumper settings after the measurement.
+; If VRT-Bit is invalid: Halt the CPU with LED 2 on (LED 1&3 off).
+; (IOPAGE is still Board-Page.)
 
 speed:	ld	c,bti
-	ldctl	hl,(c)		; bisheriges Bustiming (Waits) lesen
-	exx			; und retten
+	ldctl	hl,(c)		; Read the current bus timing (Waits)
+	exx			; and save
 	ld	c,bti
-	ld	l,00001101b	; BTI-Wert f}r 3 Waits bei Low Memory
+	ld	l,00001101b	; BTI-value for 3 Waits in Low Memory
 	ldctl	(c),hl
-	in	a,(rtcd)	; RTC-Register D lesen
-	cp	80h		; VRT-Bit gesetzt ?
-	jr	z,speed0	; ja: alles in Ordnung
+	in	a,(rtcd)	; Read RTC-Register D
+	cp	80h		; Is it running (VRT-Bit set)?
+	jr	z,speed0	; yes: proceed with test
 	out	(ld3_off),a
-	jr	$		; ansonsten HALT mit LED's off-on-off
+	jr	$		; otherwise HALT with LED's off-on-off
 
 speed0:	ld	a,00100100b
 	out	(rtca),a	; 4096 Hz SQW / Periodic Int
-	in	a,(s$dse)	; Sommerzeit-Enable aus Setup
+	in	a,(s$dse)	; Daylight-Saving-Enable from Setup
 	and	00000001b
 	or	00000010b
-	out	(rtcb),a	; Count Enable, BCD, 24h, evtl. DSE
-	ld	hl,20		; Z{hler r}cksetzen, Default-Zeitfaktor in L
+	out	(rtcb),a	; Count Enable, BCD, 24h, possibly with DSE
+	ld	hl,20		; Reset counter, Default-Time factor in L
 	ld	b,5
-speed1:	in	a,(rtcc)	; C-Register lesen
+speed1:	in	a,(rtcc)	; Read C-Register
 	inc	h
-	jr	z,speeds	; Time-Out: Default-Zeit verwenden
+	jr	z,speeds	; Time-Out: Use Default-Time
 	bit	6,a
-	jr	z,speed1	; warten bis PF=1
-	ld	h,0		; Z{hler wieder Null
-	djnz	speed1		; f}nfmal warten : einschwingen lassen (!)
+	jr	z,speed1	; wait until PF=1
+	ld	h,0		; Set counter to zero
+	djnz	speed1		; Wait 5 times : let it settle (!)
 speed2:	in	a,(rtcc)
 	inc	h
-	jr	z,speeds	; Time-Out: Default-Zeit verwenden
+	jr	z,speeds	; Time-Out: Use Default-Time
 	bit	6,a
-	jr	z,speed2	; dasselbe nochmal mit z{hlen
+	jr	z,speed2	; Count the same thing again
 	ld	de,0
     if cache
-	lda	hl,(hl++448-20)	; f}r Rundung (Default-Wert in L ber}cks.)
-	divuw	dehl,896	; ergibt Taktfrequenz-Faktor
+	lda	hl,(hl++448-20)	; for rounding (Default value in L)
+	divuw	dehl,896	; results in ClockFrequency-Factor
     else
 	lda	hl,(hl++198-20)
 	divuw	dehl,397
     endif
 speeds:	ld	a,l
-	out	(cpufreq),a	; Faktor (x 614400 Hz) speichern
+	out	(cpufreq),a	; Save Factor (x 614400 Hz)
 	exx
-	ldctl	(c),hl		; BTI wieder auf Originalwert setzen
-	ld	b,a		; Takt-Faktor auch nach B f}r sp{ter (CHRNIT)
-	out	(ld2_off),a	; zweite LED ausschalten: Frequenz erkannt
+	ldctl	(c),hl		; Restore bus timing (BTI)
+	ld	b,a		; Also keep factor for late use (CHRNIT)
+	out	(ld2_off),a	; Switch off second LED : Frequency detected
 
-; Setzen der Refreshrate entsprechend diesem Wert (auf 512 Refr. in 8 ms).
+; Set the memory refresh rate according to this value (to 512 refs. in 8 ms).
 
 	multu	a,24
-	divu	hl,10		; * 2.4 ergibt Refresh-Rate
+	divu	hl,10		; * 2.4 gives Refresh-Rate
 	set	7,a		; Refresh Enable
 	iopage	rrrp
-	out	(rrr),a		; Refresh Rate Register setzen
-	in	a,(rrr)		; wg. Chipfehler (falls CHRNIT mit JP beginnt!)
+	out	(rrr),a		; Set Refresh Rate Register
+	in	a,(rrr)		; wg. Chip error (if CHRNIT begins with a JP!)
 
-; Initialisieren der Konsolenschnittstelle.
+; Initialise the Console Interface.
 
-	chrnit			; Makro
+	chrnit			; Use Macro
 
-; On-Board-Hardware (insbesondere FDC) initialisieren.
+; On-Board-Hardware (especially FDC) Initialisation.
 
 	iopage	boardp
 	ld	a,0EDh
 	out	(Reti1),a
 	ld	a,4Dh
-	out	(Reti2),a	; Zwei Pl{tze im NVRAM f}r Z80-RETI-Timing
+	out	(Reti2),a	; Two places in NVRAM for Z80-RETI-Timing
 	ld	a,88h
 	out	(FdcLdOr),a
 	in	a,(FdcLdCr)
@@ -226,178 +233,177 @@ speeds:	ld	a,l
 	out	(FdcLdOr),a
 	in	a,(FdcSta)	; Set FDC in Special Mode
 
-; RAM-Test durchf}hren und Speichergr|~e ermitteln.
-; Aufruf mit JP, da noch kein RAM benutzt werden darf.
-; (R}cksprung von RAM-Test nach DoBoot.)
+; Perform RAM-Test and determin the memory size.
+; Call with JP, since no RAM may be used.
+; (RAM-Test returns to DoBoot.)
 
 	jp	RamTst
 
-; Booten in System-Bank (ab Adr. 810000) und MMU-Programmierung daf}r.
-; MMU ist schon seit RAM-Test aktiv (enabled).
+; Boot into System-Bank (ab Adr. 810000) and set MMU-Programming for it.
+; MMU has been active during RAM-Test (enabled).
 
 DoBoot:	iopage	boardp
-	out	(ld3_off),a	; dritte LED ausschalten: RAM ok.
+	out	(ld3_off),a	; Turn off the third LED: RAM ok.
 	iopage	dmap
 	ld	c,dmcr
 	ld	hl,0
 	outw	(c),hl		; DMA Master Control Reg.
 	ld	hl,BootDMA
-	jp	DmaSet		; EPROM in System-Bank kopieren
-				; (R}cksprung nach SetMMU)
+	jp	DmaSet		; Copy EPROM to System-Bank
+				; (Return to SetMMU)
 
-; DMA-Parameterblock zum Booten:
+; DMA Parameter block for Booting:
 
 BootDMA:defb	dal3		; DMA 3
 	defw	0
 	defb	81h		; Dest 810000h
 	defw	0
 	defb	0		; Src 000000h
-	defw	7800h		; Length 30k words = 60 KB (Sys-Bank komplett)
+	defw	7800h		; Length 30k words = 60 KB (Sys-Bank complete)
 	defw	1000001100000000b ; descriptor (Mem --> Mem, words)
 
-; Endg}ltiges Setzen der MMU (alle PDR's) f}r User- und System Mode.
-; Im Loader wird nur der System Mode benutzt, und damit nur Bank 0
-; (System-Bank) addressiert. Im User-Mode wird Bank 1 (TPA) addressiert.
+; Lastly, set the MMU (all PDR's) for User and System Mode.
+; Only the System mode is used in the Loader, and therefore only Bank 0
+; (System-Bank) is addressed. In User-Mode Bank 1 (TPA) is used.
 
 SetMMU:	xor	a
-	out	(PDR),a		; MMU PDR Pointer (IOP noch FF von DMASET)
+	out	(PDR),a		; MMU PDR Pointer (IOP still FF from DMASET)
 	ld	bc,32*100h+BMP
 	ld	hl,MMUTab
-	otirw			; MMU PDR's User/System Mode setzen
+	otirw			; Set MMU PDR's User/System Mode
 
-; Ab hier l{uft das Programm im RAM, d.h. mit Stack.
+; From here the program runs in RAM, i.e. with a Stack.
 
-	ld	(ChkSum),sp	; Pr}fsumme im RAM zwischenspeichern
-	ld	sp,Stack	; Stack zum Booten
+	ld	(ChkSum),sp	; Cache the checksum in RAM
+	ld	sp,Stack	; Set boot Stack
 	ld	a,0C9h		; RET Opcode
-	ld	(DmaRet),a	; DMASET-Return nicht mehr nach SETMMU
+	ld	(DmaRet),a	; patch out DMASET to Return instead of SETMMU
     if cache
 	ld	c,CCR
-	ld	l,00001000b	; Data Cache jetzt an (RAM ok)
+	ld	l,00001000b	; Enable Data Cache (RAM ok)
 	ldctl	(c),hl		; Cache Control: Cache Enable, HM Burst On
     endif
 
-; Interruptbearbeitung vorbereiten, INT Enable (f}r FDC und CT0).
+; Prepare interrupt processing and enable INT for FDC and CT0.
 
 	ld	c,ITV
 	ld	hl,8100h
-	ldctl	(c),hl		; I/T Vector Table auf 810000h
+	ldctl	(c),hl		; I/T Vector Table is at 810000h
 	ld	c,TCR
 	ld	hl,0
 	ldctl	(c),hl		; Trap Control Register
 	ld	c,ISR
 	ldctl	(c),hl		; Interrupt Status Register
 	im	3		; Mode 3
-	ei	Ints		; Interrupts Enable (FDC und CT0)
+	ei	Ints		; Interrupts Enable (FDC and CT0)
 
-; Timer 0 f}r 10-ms-Interrupt initialisieren und starten.
+; Initialise Timer 0 for 10-ms-Interrupt and start it.
 
 	iopage	boardp
-	in	a,(CpuFreq)	; CPU-Taktfaktor in A
+	in	a,(CpuFreq)	; CPU-Clock factor in A
 	iopage	ctp		; IO Page FE
 	exts	a		; --> HL
 	ld	a,10101000b
 	out	(cr0),a		; CT0: Cont. Timer, Output, Interrupt
-	multuw	hl,1536		; ergibt Timer-Konstante f}r 10 ms
+	multuw	hl,1536		; gives Time-Constant for 10 ms
 	dec	hl		; n-1 in Timer-Register
 	ld	c,tc0
-	outw	(c),hl		; CT0 f}r 100 Hz Interrupt
+	outw	(c),hl		; CT0 for 100 Hz Interrupt
 	ld	a,11100000b
 	out	(cs0),a		; CT0 Enable
 
-; Pr}fen, ob w{hrend RAM-Test eine Taste bet{tigt wurde.
-; Bei DEL (oder ge{nderter Checksum): Setup-Menu aufrufen.
+; Check if a key is presed during RAM-Test.
+; If DEL (or changed Checksum): Call Setup-Menu.
 
 	iopage	boardp
-	in	a,(gpi)		; User-Jumper lesen
+	in	a,(gpi)		; Read User-Jumper
 	bit	b$uj1,a
-	jp	z,boots1	; UJ1 gesteckt: ins Setup gehen (Defaults!)
-	ld	hl,(ChkSum)
+	jp	z,boots1	; UJ1 plugged in: go to Setup (Defaults!)
+	ld	hl,(ChkSum)	; Verify checksum
 	in	a,(CheckLo)
-	cp	l		; Low-Bytes vergleichen
-	jp	nz,BootS	; verschieden: Setup!
+	cp	l		; Low-Bytes verify
+	jp	nz,BootS	; no match: Setup!
 	in	a,(CheckHi)
-	cp	h		; High-Bytes vergleichen
-	jp	nz,BootS	; verschieden: Setup!
-	inchar			; inzwischen Taste bet{tigt?
-	jr	c,Boot		; nein: normal booten
+	cp	h		; High-Bytes verify
+	jp	nz,BootS	; no match: Setup!
+	inchar			; Key pressed?
+	jr	c,Boot		; no: boot normally
 	cp	DEL
-	jr	nz,Boot		; nur bei DEL : Setup-Menu (sonst normal)
+	jr	nz,Boot		; only if DEL : Setup-Menu (otherwise normal)
 
-; Aufruf des Setup-Menu:
-; Vorher alle Einstellungen aus NVRAM laden, nachher wieder speichern.
+; Call up the Setup-Menu:
+; First load settings from NVRAM, then save again.
 
 BootS:	iopage	boardp
 	ld	hl,Drive0
 	ld	c,s$drv0-1
-	ld	b,ValNum	; Anzahl der zu lesenden Werte
-setup1:	inc	c		; I/O-Adresse erh|hen
-	ini			; 1 Byte lesen
-	jr	nz,setup1	; bis alle Werte im Zwischenspeicher
+	ld	b,ValNum	; Number of values to be read
+setup1:	inc	c		; Bump I/O-Address
+	ini			; Read 1 Byte
+	jr	nz,setup1	; continue until all values in buffer
 
-; (Setup-Einsprung bei erster Inbetriebnahme, ohne NVRAM-laden.)
+; (Setup-First Time without NVRAM load)
 
-BootS1:	call	hmenu		; Haupt-Menu des Setup
-	iopage	boardp		; I/O-Page f}r Setup-NVRAM
+BootS1:	call	hmenu		; Main Menu for Setup
+	iopage	boardp		; I/O-Page for Setup-NVRAM
 	ld	hl,Drive0
 	ld	c,s$drv0-1
-	ld	b,ValNum	; Anzahl der zu speichernden Werte
-exit1:	inc	c		; I/O-Adresse erh|hen
-	outi			; 1 Byte speichern
-	jr	nz,exit1	; bis alle Werte im Setup-RAM
+	ld	b,ValNum	; Number of values to be saved
+exit1:	inc	c		; Bump I/O-Address
+	outi			; Save 1 Byte
+	jr	nz,exit1	; continue for all Setup-RAM values
 	ld	hl,(ChkSum)
 	ld	a,l
 	out	(CheckLo),a
 	ld	a,h
-	out	(CheckHi),a	; erst nach Setup neue Pr}fsumme speichern!
-				; (anschlie~end normal booten)
+	out	(CheckHi),a	; Save new checksum after setup!
+				; (then boot normally)
 
 ;***********************************************************************
-;**	Booten von Laufwerk (mit LDOS) oder aus EPROM (direkt)        **
+;**	Booting from Disk (with LDOS) or from EPROM (direct)          **
 ;***********************************************************************
 
-; Alle Laufwerke initialisieren (Treiber anhand XDPH aufrufen).
-; Dabei werden bei Fehlern die entsprechenden Drives in DTBL gel|scht.
-; Die RAM-Disks werden dabei ggf. initialisiert (Directory!).
+; Initialise all drives (Call driver entries in the XDPH).
+; In the event of errors, the coresponding Drives in DTBL are deleted.
+; If necessary RAM-Disks are initialised (CP/M Directory & Label!).
 
-Boot:	ld	b,16		; Alle 16 logischen Laufwerke bearbeiten
-	ld	hl,DTbl		; Zeiger auf Drive Table
+Boot:	ld	b,16		; For all 16 logical Drives
+	ld	hl,DTbl		; Point to Drive Table
 DrvIni:	push	hl
-	ldw	hl,(hl)		; Eintrag aus Drive Table: XDPH
+	ldw	hl,(hl)		; Fetch entry from Drive Table: XDPH
 	ld	a,h
 	or	l
-	jr	z,DrvIn1	; Eintrag 0 : kein Laufwerk
-	ldw	hl,(hl+25)	; sonst Init-Einsprung aus XDPH holen
+	jr	z,DrvIn1	; If 0000 : no drive
+	ldw	hl,(hl+25)	; Othewise get Init-Entry from XDPH
 	ld	a,h
 	or	l
 	push	bc
-	call	nz,(hl)		; ggf. Treiber aufrufen
+	call	nz,(hl)		; Call driver init entry if used
 	pop	bc
 DrvIn1:	pop	hl
 	inc	hl
-	inc	hl		; Zeiger auf n{chste XDPH-Adresse
-	djnz	DrvIni		; weiter bis alle Laufwerke bearbeitet
+	inc	hl		; Point to next XDPH Address
+	djnz	DrvIni		; repeat for next drive
 
-; Feststellen des Bootlaufwerks (aus Setup) und verzweigen in die
-; entsprechende Boot-Routine. SignOn-Meldung wird vorbereitet und
-; ausgegeben.
+; Detect the Boot Drive (from Setup) and branch into the corresponding
+; Boot-Routine. The SignOn-Message is prepared and output.
 
 	iopage	boardp
-	ld	hl,SignOn	; Zeiger auf SignOn (f}r sp{ter)
-	in	a,(s$BDrv)	; Boot-Laufwerk aus Setup
+	ld	hl,SignOn	; Point to SignOn (for later)
+	in	a,(s$BDrv)	; Boot-Drive from Setup
 	cp	16
-	jp	z,BootEpr	; 'Q' angegeben: Booten aus EPROM
-	inc	a		; A..P jetzt 1..16 f}r FCB
-	cp	5		; --> Carry bei Boot von Diskette
+	jp	z,BootEpr	; 'Q' specified: Booten from EPROM
+	inc	a		; A..P now 1..16 for FCB
+	cp	5		; --> Carry set means Boot from Floppy
 	jr	nc,NotDsk
-	out	(Mot_On),a	; dann Laufwerksmotor anschalten!
-NotDsk:	ld	(SysFCB),a	; Laufwerk im Boot-FCB speichern
+	out	(Mot_On),a	; Drive Motor ON
+NotDsk:	ld	(SysFCB),a	; Save drive in Boot-FCB
 	ld	(CcpFCB),a	; WBW 2017-03-08 CCP FCB also
 	add	a,'A'-1
-	ld	(BootDrv),a	; Laufwerksbezeichner in SignOn einsetzen
-	call	PMsg		; Signon-Meldung ausgeben
+	ld	(BootDrv),a	; Convert to drive name SignOn message
+	call	PMsg		; Output Signon Message
 
-; Booten des System-Files von einem Laufwerk (Diskette, MDrive, Festplatte).
+; Boot the System-File from the Drive (Diskette, MDrive, Hard Disk).
 
 	ld	c,13
 	call	LDOS		; DOS 13 : Reset Disk System
@@ -405,19 +411,19 @@ NotDsk:	ld	(SysFCB),a	; Laufwerk im Boot-FCB speichern
 	ld	de,SysFCB
 	call	LDOS		; DOS 15 : Open File
 	inc	a
-	jp	z,NoSys		; Fehlermeldung: kein System
+	jp	z,NoSys		; Error Message: No System
 	ld	de,Header
-	call	SDMA		; DMA auf Header & Sektorpuffer
-	call	RdSeq		; ersten Sektor lesen
+	call	SDMA		; DMA on for Header & Sector Buffer
+	call	RdSeq		; First sector read
 	ld	de,SecBuf
-	call	SDMA		; DMA auf Sektorpuffer
-	call	RdSeq		; zweiten Sektor lesen (System-Meldung)
+	call	SDMA		; DMA to Sector buffer
+	call	RdSeq		; Read second sector (System-Message)
 	ld	hl,SecBuf
-	call	PMsg		; TPA-Meldung aus zweitem Sektor
+	call	PMsg		; TPA-Message from second sector
 	ld	bc,(Header)	; Resident TopPage+1 in C, Length in B
-	call	Load		; Residenten Teil laden
+	call	Load		; Load Resident part
 	ld	bc,(Header+2)	; Banked TopPage+1 in C, Length in B
-	call	Load		; gebankten Teil laden
+	call	Load		; Load Banked part
 	; WBW 20170308: Load and cache CCP from disk
 	ld	c,15		; File open function
 	ld	de,CcpFCB	; CCP FCB pointer
@@ -434,8 +440,8 @@ NotDsk:	ld	(SysFCB),a	; Laufwerk im Boot-FCB speichern
 	ld	hl,SavCcp	; Set up to copy CCP to cache
 	call	DmaSet		; Do it
 	; WBW 20170308: End modification
-	ld	hl,(Header+4)	; Einsprungadresse f}r BOOT (im System!)
-	jp	GoSys		; ab geht's ins neu gebootete System...
+	ld	hl,(Header+4)	; Entry address for BOOT (in the System!)
+	jp	GoSys		; Let's GO to the loaded System...
 
 ; DMA Parm Block to Save CCP at 83F000H
 ; WBW 2017-03-08: A copy of the CCP image is now cached in RAM so that
@@ -451,22 +457,22 @@ SavCcp:	defb	dal3		; DMA 3
 
 ; WBW 2017-03-08: End modification
 
-; Eigentlicher Lader. L{dt Teil des Systems in den Speicher.
-; TopPage+1 in C, Anzahl Pages in B.
+; Actual Loader. Loads part of the System into memory.
+; TopPage+1 in C, Number of Pages in B.
 
 Load:	ld	d,c
-	ld	e,0		; Top-Adresse in DE
-	sla	b		; B verdoppeln (-> Anzahl Sektoren)
+	ld	e,0		; Top-Address in DE
+	sla	b		; double B (-> Number of Sectors)
 LdLoop:	ld	hl,-128
 	add	hl,de
-	ex	de,hl		; Zieladresse um 128 niedriger
+	ex	de,hl		; Lower destination address by 128
 	push	de
 	push	bc
-	call	SDMA		; DMA setzen
-	call	RdSeq		; Sektor lesen
+	call	SDMA		; Set DMA address
+	call	RdSeq		; Read Sector
 	pop	bc
 	pop	de
-	djnz	LdLoop		; alle angegebenen Sektoren lesen
+	djnz	LdLoop		; loop until all sectors are read
 	ret
 
 ; WBW 2017-03-08: Load CCP image from disk, max records to read in B,
@@ -489,7 +495,7 @@ LdCcp:	push	de		; Save DE
 
 ; WBW 2017-03-08: End modification
 
-; \fters ben|tigte LDOS-Funktionen: DMA setzen, Sequential Read.
+; Frequently used LDOS Functions: Set DMA, Sequential Read.
 
 SDMA:	ld	c,26
 	jp	LDOS		; DOS 26 : Set DMA Adress
@@ -497,17 +503,17 @@ SDMA:	ld	c,26
 RdSeq:	ld	c,20
 	ld	de,SysFCB
 	call	LDOS		; DOS 20 : Read Sequential
-	or	a		; Fehler ?
-	ret	z		; kein Fehler : RET
-				; Fehler: Meldung "kein System"
+	or	a		; Error ?
+	ret	z		; RET if none
+				; Error: Message "No System"
 
-; Kein System ladbar (nicht auf Laufwerk bzw. im EPROM vorhanden).
-; Fehlermeldung ausgeben und System anhalten.
+; No system can be loaded (not on the drive or in the EPROM).
+; Output message and HALT the System.
 
 NoSys:	ld	hl,NotFnd
-	call	PMsg		; Meldung ausgeben
+	call	PMsg		; Output message
 	di
-	jr	$		; CPU stoppen
+	jr	$		; CPU HALT (busy loop)
 
 ; WBW 2017-03-08: Add supporting read and error routines
 ; to handle loading of CCP from disk.
@@ -537,23 +543,23 @@ ccpfcb:	defb	0,'CCP     COM',0,0,0,0,0,0,0,0,0,0,0,0,0,0
 ;**	Booten aus dem EPROM					**
 ;*****************************************************************
 
-; Adre~definitionen (Ablage von CPM3.SYS im EPROM ab SysBase);
+; Address Definitions (Storage of CPM3.SYS in the EPROM at SysBase);
 
 ResTop	equ	SysBase		; Resident Top Page
 ResLen	equ	SysBase+1	; Resident Length (Pages)
 BnkTop	equ	SysBase+2	; Banked Top Page
 BnkLen	equ	SysBase+3	; Banked Length (Pages)
-Start	equ	SysBase+4	; Einsprungadresse ins System (BOOT)
-TpaMsg	equ	SysBase+80h	; Meldung }ber TPA-Gr|~e / Load Map
-SysBeg	equ	SysBase+100h	; Beginn des eig. Codes
+Start	equ	SysBase+4	; Entry Address to the System (BOOT)
+TpaMsg	equ	SysBase+80h	; Message about TPA-Size / Load Map
+SysBeg	equ	SysBase+100h	; Beginning of the System Code
 
-; Zun{chst entsprechende Meldung ausgeben.
+; First output the appropriate message.
 
 BootEpr:xor	a
-	ld	(BootFrm),a	; Abschlu~-Null in SignOn einsetzen
-	call	PMsg		; Signon-Meldung ausgeben
+	ld	(BootFrm),a	; Use zero terminated SignOn message
+	call	PMsg		; Output SignOn message
 	ld	hl,Eprom
-	call	PMsg		; Signon vervollst{ndigen: Boot aus EPROM
+	call	PMsg		; Complete Signon: Boot from EPROM
 	ld	a,(restop)	; CPM3.SYS im EPROM ?
 	or	a
 ; WBW 2017-03-08: Switch from jr -> jp, relative jump no longer in range
@@ -561,48 +567,46 @@ BootEpr:xor	a
 	jp	nz,NoSys	; Resident Top Page +1 nicht 00 : Fehler
 ; WBW 2017-03-08: End modification
 	ld	hl,TpaMsg
-	call	PMsg		; TPA-Meldung aus 2. "Sektor"
+	call	PMsg		; TPA-Message from Sector 2
 
-; Betriebssystem aus dem EPROM booten. Dazu Records lesen und von oben
-; nach unten im Speicher ablegen.
-; Zun{chst residenten System-Teil im Common Memory.
+; Boot the operating system from EPROM. Copy Data Records into RAM
+; Firstly, the resident part into Common memory
 
 	ld	hl,(ResTop)	; H=RESLEN, L=RESTOP
 	dec	l		; --> Top Page +0
 	ld	d,l
-	ld	e,80h		; erste Ziel-Adresse in DE
+	ld	e,80h		; First Destination address in DE
 	ld	b,h
-	sla	b		; RESLEN verdoppeln (-> Anzahl Sektoren)
-	ld	hl,SysBeg	; Quelle: ab 3. "Sektor" CPM3.SYS
+	sla	b		; Double RESLEN (-> Number of sectors)
+	ld	hl,SysBeg	; Source: From 3rd "Sector" of CPM3.SYS
 LdLp1:	push	bc
 	ld	bc,128
-	ldir			; "Sektor lesen"
+	ldir			; "Read Sector"
 	pop	bc
-	dec	d		; r}ckw{rts laden
-	djnz	LdLp1		; alle Sektoren lesen
+	dec	d		; load backwards
+	djnz	LdLp1		; until all sectors loaded
 
-; Anschlie~end den gebankten Teil des Systems booten. Da der obere Bereich
-; von CPM3.SYS im EPROM bis in den Ladebereich des gebankten Systems reicht,
-; wird per DMA direkt aus dem EPROM gebootet.
+; Then load the Banked part of the System from CPM3.SYS into banked memory
+; directly from the EPROM via DMA.
 
-	ld	(SrcAdr),hl	; n{chste Startadresse in CPM3.SYS
+	ld	(SrcAdr),hl	; Next Start Address in CPM3.SYS
 	ld	hl,(BnkTop)	; H=BNKLEN, L=BNKTOP
 	dec	l		; --> Top Page +0
 	ld	d,l
-	ld	e,80h		; erste Ziel-Adresse in DE
+	ld	e,80h		; First destination in DE
 	ld	b,h
-	sla	b		; BNKLEN verdoppeln (-> Anzahl Sektoren)
-LdLp2:	ld	(DstAdr),de	; Zieladresse einsetzen
+	sla	b		; Double BNKLEN (-> Number of sectors)
+LdLp2:	ld	(DstAdr),de	; Destination address
 	ld	hl,SysDMA
 	push	bc
-	call	DmaSet		; Record aus EPROM booten
+	call	DmaSet		; Source from EPROM
 	pop	bc
 	ld	hl,(SrcAdr)
 	lda	hl,(hl++80h)
-	ld	(SrcAdr),hl	; Quelle + 80h
+	ld	(SrcAdr),hl	; Source + 80h
 	ld	hl,(DstAdr)
 	lda	hl,(hl--80h)
-	ex	de,hl		; Ziel - 80h
+	ex	de,hl		; Dest - 80h
 	djnz	LdLp2
 ; WBW 2017-03-08: Copy ROM-based CCP image to new common RAM-based
 ; cache location that supports both ROM and disk loading of CCP
@@ -610,66 +614,66 @@ LdLp2:	ld	(DstAdr),de	; Zieladresse einsetzen
 	call	DmaSet
 ; WBW 2017-03-08: End modification
 	ld	hl,(Start)
-	jp	GoSys		; GlobVar setzen, dann ins System springen
+	jp	GoSys		; Set global variables and jump to the System
 
-; DMA-Parameterblock f}r Booten des gebankten Systemteils aus EPROM.
+; DMA-Parameter block for Booting the banked system part from the EPROM.
 
 SysDMA:	defb	dal3		; DMA 3
-DstAdr:	defw	0		; Zialadresse
+DstAdr:	defw	0		; Potential address
 	defb	81h		; Dest 81xxxxh (System-Bank)
-SrcAdr:	defw	0		; Quelle
+SrcAdr:	defw	0		; Source
 	defb	0		; Src 00xxxxh (EPROM)
 	defw	40h		; Length 40h words = 80h Bytes (1 Record)
 	defw	1000001100000000b ; descriptor MEM --> MEM, words
 
 ;***********************************************************************
-;**                Globale Parameter f}r BOOT setzen                  **
+;**                Set Global Parameters for BOOT                     **
 ;***********************************************************************
 
-; Zun{chst I/O-Redirection-Vektoren berechnen und ablegen.
+; First calculate and Store the I/O redirection vectors
 
-GoSys:	push	hl		; Einsprungadresse BOOT auf Stack
+GoSys:	push	hl		; Entry address BOOT on Stack
 	iopage	boardp
-	ld	bc,500h+s$ci	; B=5 (Counter), C= I/O Adresse (Setup)
-	ld	hl,globvar	; Zeiger auf I/O Redirection Vektoren
-cilp2:	in	a,(c)		; Device-Nummer in A
-	ld	de,0000h	; Vektor wird in DE aufgebaut
+	ld	bc,500h+s$ci	; B=5 (Counter), C= I/O Address (Setup)
+	ld	hl,globvar	; Point to I/O Redirection Vectors
+cilp2:	in	a,(c)		; Device-Number in A
+	ld	de,0000h	; Vector is built in DE
 	scf
 cilp3:	rr	d
-	rr	e		; sonst DE 1 Bit nach rechts schieben
+	rr	e		; push DE 1 Bit to the right
 	dec	a
-	jp	p,cilp3		; bis Vektor fertig ist
-	ldw	(hl),de		; Vektor speichern
+	jp	p,cilp3		; until vector is done
+	ldw	(hl),de		; Save vector
 	inc	hl
-	inc	hl		; Zeiger +2
+	inc	hl		; Pointer +2
 	inc	c
-	djnz	cilp2		; f}r alle 5 Devices
+	djnz	cilp2		; for all 5 Devices
 
-; Dann Drive Search Chain aus Setup-RAM holen.
+; The get Drive Search Chain from Setup-RAM.
 
-	ld	bc,400h+s$chain-1 ; Counter & I/O-Adresse f}r Search Chain
+	ld	bc,400h+s$chain-1 ; Counter & I/O-Address for Search Chain
 chnlp:	inc	c
-	ini			; Drive Search Chain Werte aus Setup
+	ini			; copy Drive Search Chain values from Setup
 	jr	nz,chnlp
 
-; Mit Zeiger auf globale Parameter in IX in das frisch gebootete System
-; einspringen (BOOT-Entry im BIOS).
+; With pointer to globale Parameter in IX in the freshly booted system
+; Jump in (BOOT-Entry in the BIOS).
 
-	ld	ix,GlobVar	; Zeiger auf Parameter
+	ld	ix,GlobVar	; Point to Parameter
 	ret			; --> BOOT
 
 ;***********************************************************************
-;**           MMU-Tabellen f}r die verschiedenen Operationen          **
+;**           MMU Tables for the different operations                 **
 ;***********************************************************************
 
-; MMU-Tabelle f}r Bank 1 im User-Mode und Bank 0 im System-Mode.
+; MMU-Table for Bank 1 in User-Mode and Bank 0 in System-Mode.
 
 MmuTab:	defw	800Ah,801Ah,802Ah,803Ah,804Ah,805Ah,806Ah,807Ah
 	defw	808Ah,809Ah,80AAh,80BAh,80CAh,80DAh,80EAh,80FAh
 	defw	810Ah,811Ah,812Ah,813Ah,814Ah,815Ah,816Ah,817Ah
 	defw	818Ah,819Ah,81AAh,81BAh,81CAh,81DAh,81EAh,80FAh
 
-; MMU-Tabelle f}r RAM-Test: 0000-7FFF im EPROM (damit Enable erlaubt).
+; MMU-Table for RAM-Test: 0000-7FFF in EPROM (with Enable permitted).
 
 TstTab:	defw	000Ah,001Ah,002Ah,003Ah,004Ah,005Ah,006Ah,007Ah
 
@@ -677,126 +681,126 @@ TstTab:	defw	000Ah,001Ah,002Ah,003Ah,004Ah,005Ah,006Ah,007Ah
 ;**                         R A M - T E S T                           **
 ;***********************************************************************
 
-; RAMTST testet das gesamte RAM ab phys. Adresse 800000h.
-; Wird innerhalb der unteren 512k ein Fehler festgestellt, wird die Fehler-
-; meldung 'RAM-Test failed' ausgegeben und der Boot-Vorgang abgebrochen.
-; Sind die unteren 512k in Ordnung, wird der Test entsprechend der Speicher-
-; gr|~e fortgesetzt. RAM-Test zerst|rungsfrei !
-; Der RAM-Test l{uft vollst{ndig im EPROM und benutzt kein RAM.
+; RAMTST Test all RAM which is physically above address 800000h.
+; If an error is deteced witin the lower 512k the error message
+; 'RAM-Test failed' is output and the boot process is aborted.
+; If the lower 512k is OK, the test continues to be performed
+; up to the size installed. RAM-Test is non-destructive!
+; The RAM-Test runs from EPROM and does not use any RAM.
 
-RamTst:	ld	hl,TstMsg	; Anfangs- und Signon-Meldung
-	ld	iy,Test0	; (Return-Adresse)
-	jp	PutMsg		; Meldung ausgeben
-Test0:	ld	d,0		; Z{hler f}r getestete 32k-Blocks
+RamTst:	ld	hl,TstMsg	; Start and Signon message
+	ld	iy,Test0	; (Return-Address)
+	jp	PutMsg		; Output message
+Test0:	ld	d,0		; Counter for each tested 32k-Blocks
 
-; Gro~e Testschleife. Zun{chst 32k-Block in Speicher 8000-FFFF einblenden.
+; Big test loop. First put 32k-Block at memory addresses 8000-FFFF.
 
 testlp:	iopage	mmup
 	ld	a,18h
-	out	(pdr),a		; PDR Pointer --> System Mode ab 8000h
+	out	(pdr),a		; PDR Pointer --> System Mode from 8000h
 	ld	a,d
-	multu	a,128		; HL = Wert f}r Start-PDR
-	lda	hl,(hl++800Ah)	; konstante Steuerbits dazu
-	ld	bc,800h+bmp	; 8 Werte --> Block-Move-Port
+	multu	a,128		; HL = Value for Start-PDR
+	lda	hl,(hl++800Ah)	; constant control bits
+	ld	bc,800h+bmp	; 8 values --> Block-Move-Port
 test1:	outw	(c),hl
-	lda	hl,(hl++0010h)	; n{chsten 4k-Block adressieren
-	djnz	test1		; ganzen 32k-Bereich einblenden
+	lda	hl,(hl++0010h)	; next 4k-Block address
+	djnz	test1		; show entire 32k area
 
-; Eigentlicher Speichertest. Schreibversuch mit Komplement des
-; Originalinhalts. Anschlie~end Restaurierung und nochmal Vergleich.
+; Actual memory test. Write complement of the original contents
+; then restore and compare
 
-	ld	hl,8000h	; Startadresse f}r Test
-test2:	ld	a,(hl)		; Originalwert aus Speicher
+	ld	hl,8000h	; Start address for Test
+test2:	ld	a,(hl)		; Fetch original value from memory
 	cpl
-	ld	(hl),a		; Komplement schreiben
-	cp	(hl)		; erfolgreich ?
+	ld	(hl),a		; Complement it in memory
+	cp	(hl)		; successful ?
 	cpl
-	ld	(hl),a		; wieder Original Schreiben
-	jr	nz,ramerr	; Komplement verschieden gewesen: Fehler
-	cp	(hl)		; wieder Vergleich
-	jr	nz,ramerr	; verschieden: Fehler
-	inc	hl		; n{chste Adresse
- inc hl
- inc hl 			; jede 3. Adresse reicht
+	ld	(hl),a		; restore original contents
+	jr	nz,ramerr	; Complement is different: Error
+	cp	(hl)		; Compare again
+	jr	nz,ramerr	; different: Error
+	inc	hl		; next address
+ 	inc hl
+	inc hl 			; every 3rd. address is enough
 	bit	7,h
-	jr	nz,test2	; weiter bis HL=0, dann Block fertig
+	jr	nz,test2	; continue until HL=0, then Block finished
 
-; 32k-Block erfolgreich getestet. Meldung }ber bisherige Kapazit{t ausgeben.
+; 32k-Block successfully tested. Output message about capacity.
 
-	outchr	cr		; CR ausgeben --> Zeilenanfang
-	ld	a,d		; Blocknummer nach A
-	exx			; Register wechseln, damit D unbesch{digt
+	outchr	cr		; Output start of line
+	ld	a,d		; Block number after A
+	exx			; Exchange registers, to save D
 	inc	a
-	multu	a,32		; bisher getesteter Speicher in KB --> HL
+	multu	a,32		; Previously tested memory in KB --> HL
 
-	ld	b,4		; 4 Stellen ausgeben
-	ld	ix,1000		; erster Divisor
+	ld	b,4		; Output 4 Digits
+	ld	ix,1000		; first Divisor
 test3:	ld	de,0
-	divuw	dehl,ix		; HL durch Zehnerpotenz teilen
+	divuw	dehl,ix		; Share HL by power of 10
 	ld	a,l
-	add	a,'0'		; Quotient --> ASCII-Ziffer
+	add	a,'0'		; Quotient --> ASCII-digit
 	ld	l,a
-	outchr	l		; Ziffer ausgeben
-	lda	hl,(ix++0)	; Divisor nach HL
+	outchr	l		; Output it
+	lda	hl,(ix++0)	; Divisor to HL
 	divu	hl,10
 	ld	ixl,a
-	ld	ixh,0		; durch 10 geteilt wieder nach IX
-	ex	de,hl		; Rest von DE --> HL	
-	djnz	test3		; weiter bis alle 4 Ziffern ausgegeben
-	exx			; wieder auf Original-Register zur}ck
+	ld	ixh,0		; divided by 10 back to IX
+	ex	de,hl		; Rest of DE --> HL	
+	djnz	test3		; continue to output all 4 digits
+	exx			; back to original registers
 
-; Schleife 'endlos' durchlaufen (bis Abbruch mit Fehler).
+; Loop through until we hit end of RAM (an error)
 
-	inc	d		; Blockz{hler erh|hen
-	jp	nz,testlp	; bis zum ]berlauf des Z{hlers (8 MB)
+	inc	d		; Increase block counter
+	jp	nz,testlp	; until it overflows (8 MB)
 
-; Fehler im RAM gefunden: Je nach Position Speicherung der RAM-Gr|~e oder
-; Abbruch mit Fehlermeldung. Alles ohne RAM!
+; Error found in RAM: Depending on the storage position of the RAM size
+; or abort with error message.  Everything without using RAM!
 
-ramerr:	ld	a,d		; Anzahl getesteter 32k-Blocks
+ramerr:	ld	a,d		; Number of tested 32k-Blocks
 	rra
 	rra
 	rra
 	rra
-	and	0Fh		; /16 = Anzahl 512k-Blocks
+	and	0Fh		; /16 = Number of 512k-Blocks
 	ld	hl,fatmsg
 	ld	iy,msgret
-	jr	z,putmsg	; Ergebnis 0 : Fehlermeldung und Ende
+	jr	z,putmsg	; Result 0 : Error message and end
 	iopage	boardp
-	out	(s$mem),a	; Blockanzahl speichern (--> Setup)
+	out	(s$mem),a	; Save block number (--> Setup)
 	ld	hl,okmsg
-	ld	iy,doboot	; sonst Meldung und booten
+	ld	iy,doboot	; otherwise message and boot
 
-; Ausgabe eines Textes ab Adresse (HL), ohne RAM-Benutzung. RET nach (IY).
+; Output text from address (HL), without RAM usage. RET to (IY).
 
-putmsg:	ld	a,(hl)		; Zeichen holen
+putmsg:	ld	a,(hl)		; Get the character
 	or	a
-	jr	z,msgret	; NUL Character : Ende
-	outchr	(hl)		; sonst Zeichen ausgeben
+	jr	z,msgret	; NUL Character : End
+	outchr	(hl)		; Output character
 	inc	hl
-	jr	putmsg		; weitermachen bis NUL
-msgret:	jp	(iy)		; RET }ber (IY) ohne RAM
+	jr	putmsg		; carry on until NUL
+msgret:	jp	(iy)		; RET via (IY) without using RAM
 
 ;*****************************************************************
-;**	DMA-Ansteuerung						**
+;**	DMA-Control    						**
 ;*****************************************************************
 
-; Physikalische DMA-Adresse ermitteln (in AHL).
+; Determine physical DMA address (in AHL).
 
-ClcDMA::ld	hl,(DMA)	; logische Adresse = phys. Adresse in Bank
+ClcDMA::ld	hl,(DMA)	; logical Address = phys. Address in Bank
 	ld	a,0EFh
-	cp	h		; CY wenn in Common-Bereich (ab F000)
-	sbc	a,6Eh		; 81h (banked) bzw. 80h (Common)
+	cp	h		; CY if in Common-Range (above F000)
+	sbc	a,6Eh		; 81h (banked) or 80h (Common)
 	ret
 
-; DMA-Register mit den Werten ab (HL) laden. Parameterblock:
+; Load DMA-Registers with the values from (HL). Parameter block:
 ; 8 Bit DMA-Adr, 24 Bit Dest, 24 Bit Src, 16 Bit Length, 16 Bit Control.
-; R}ckkehr erstmalig nach SETMMU, nach Booten als normales UP.
+; Return for the first time to SETMMU, and after booting as normal UP.
 
 DmaSet::ld	b,l
 	iopage	DMAP
 	ld	l,b
-	ld	c,(hl)		; Adresse DMA-Register
+	ld	c,(hl)		; Address DMA-Register
 	inc	hl
 	outiw			; DAL
 	inc	c
@@ -811,60 +815,60 @@ DmaSet::ld	b,l
 	outiw			; Length
 	inc	c
 	outiw			; Descriptor
-DmaRet:	jp	SetMMU		; R}cksprung ohne Stack, sp{ter 'RET'
+DmaRet:	jp	SetMMU		; Return without Stack, later changed to 'RET'
 
 ;*****************************************************************
-;**	Konsolen-I/O (Rest in Kernel)				**
+;**	Console-I/O (Rest in Kernel)				**
 ;*****************************************************************
 
-; Konsolen-Eingabe. Zeichen in A.
+; Console input, Character in A.
 
 ConIn::	push	bc
 	push	de
-	push	hl		; alle Register retten
-ConIn1:	InChar			; Makro
-	jr	c,ConIn1	; warten auf Eingabe
+	push	hl		; save all Registers
+ConIn1:	InChar			; Macro
+	jr	c,ConIn1	; Wait for input
 	pop	hl
 	pop	de
-	pop	bc		; Register restaurieren
+	pop	bc		; Restore registers
 	ret
 
 ;*****************************************************************
-;**	Variablen und Texte					**
+;**	Variables and Text Messages				**
 ;*****************************************************************
 
-; Puffer f}r ersten Record des System-Files. Enth{lt Informationen
-; }ber Zieladresse/L{nge des Systems (resident bzw. gebankt) und 
-; Einsprungadresse. Es werden nur die ersten 6 Byte genutzt, der
-; Rest wird beim n{chsten Lesen (zweiter Record: TPA-Meldung)
-; nach SecBuf }berschrieben.
+; Buffer for the first record of the system file. Contains information
+; via Destnation address/Length of System (resident or banked) and 
+; Entry address. Only the first 6 bytes are used, the remainder will
+; be read the next time (second Record: TPA Message)
+; Overwritten after SecBuf.
 
-Header:	defs	6		;*** Diese Reihenfolge darf nicht
-SecBuf:	defs	128		;*** ge{ndert werden!!!
+Header:	defs	6		;*** This order must not
+SecBuf:	defs	128		;*** be changed!!!
 
-ChkSum:	defs	2		; Zwischenspeicher f}r EPROM-Pr}fsumme
+ChkSum:	defs	2		; Buffer for EPROM-Checksum
 
 	defs	128
-Stack	equ	$		; Stack beim Booten
+Stack	equ	$		; Stack at Boot
 
-; Globale Parameter}bergabe an BIOS.
-; Zeiger auf diesen Parameterblock wird in IX ans BIOS (BOOT) }bergeben.
+; Global Parameter passing to BIOS.
+; Pointer to this Parameter block is passed in IX to the BIOS (BOOT).
 
-GlobVar:defs	10		; 5 Word: I/O Redirection Vektoren f}r SCB
-	defs	4		; 4 Byte: Drive Search Chain f}r SCB
+GlobVar:defs	10		; 5 Word: I/O Redirection Vectors for SCB
+	defs	4		; 4 Byte: Drive Search Chain for SCB
 
-; Texte und Meldungen:
+; Text and Messages:
 
     if deutsch
 TstMsg:	defm	CR,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF
 	defm	LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF
-	defm	'CPU280 Kaltstart-Programm V1.21 RBC 4-Aug-2017',CR,LF
+	defm	'CPU280 Kaltstart-Programm V1.21 RBC 4-Aug-2018',CR,LF
 	defm	'http://www.retrobrewcomputers.org',CR,LF
 	defm	'beyogen auf Kaltstart-Programm V1.13 TR 950314',CR,LF
 	defz	'Dr}cke DEL f}r SETUP.',CR,LF
 FatMsg:	defz	CR,LF,'Fataler Fehler: nicht genug RAM'
 OkMsg:	defz	'k RAM ok'
-SignOn:	defm	CR,LF,LF,'CP/M-3 Loader V1.21 RBC 4-Aug-2017',CR,LF
+SignOn:	defm	CR,LF,LF,'CP/M-3 Loader V1.21 RBC 4-Aug-2018',CR,LF
 	defm	'beyogen auf CP/M-3 Loader V1.13',CR,LF
 	defm	'Lade System von '
 BootFrm:defm	'Laufwerk '
@@ -877,13 +881,13 @@ CcpErr:	defz	BEL,'Fehler: CCP nicht ladbar',CR,LF
     if english
 TstMsg:	defm	CR,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF
 	defm	LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF
-	defm	'CPU280 Boot Loader V1.21 RBC 4-Aug-2017',CR,LF
+	defm	'CPU280 Boot Loader V1.21 RBC 4-Aug-2018',CR,LF
 	defm	'http://www.retrobrewcomputers.org',CR,LF
 	defm	'based on Cold Loader Program V1.13 TR 950314',CR,LF
 	defz	'Press DEL to run SETUP.',CR,LF
 FatMsg:	defz	CR,LF,'Fatal Error: not enough RAM'
 OkMsg:	defz	'k RAM ok'
-SignOn:	defm	CR,LF,LF,'CP/M-3 Loader V1.21 RBC 4-Aug-2017',CR,LF
+SignOn:	defm	CR,LF,LF,'CP/M-3 Loader V1.21 RBC 4-Aug-2018',CR,LF
 	defm	'based on CP/M-3 Loader V1.13',CR,LF
 	defm	'Booting system file from '
 BootFrm:defm	'drive '
@@ -894,4 +898,4 @@ CcpErr:	defz	BEL,'Error: CCP not loadable',CR,LF
     endif
 
 	end
-
+

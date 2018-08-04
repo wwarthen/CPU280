@@ -8,51 +8,58 @@
 
 ; 950214 Tilmann Reh
 
-; Betriebs-Parameter f}r Festplatte. Hier: Pseudo-Native Mode CP-3044.
+; 10-July-2018 Tony Nicholson
+; Comments translated from German to English (using Google
+; Translate with some appropriate language adjustments resulting
+; from an examination of the instruction sequences).  Also
+; corrected the syntax to be compatible with Hector Peraza's
+; ZSM4 Z80/Z180/Z280 assembler 
+
+; Drive parameters for hard disk here. Pseudo-native CP-3044
 
 Cyls	equ	526
 Heads	equ	4
 Secs	equ	40
 
-; Partitionierung: Vorgaben. Partitionierung nur in ganzen Zylindern m|glich.
-; ]bersetzung: log. Tracks = Zylinder, log. Sektoren = Sektoren * Heads.
-; Berechnungen folgen am Modulende (pr}fen!). Signon-Meldungen und DPB's am
-; Modulende sind ebenfalls anzupassen.
+; Partitioning: Defaults. Partitioning only possible using whole cylinders.
+; Translation: log. Tracks = cylinder, log. Sectors = Sectors * Heads.
+; Calculations follow at the end of the module (check!). Signon messages and
+; DPB's at the end of this Module may also need to be adjusted.
 
-; Die Anzahl der Partitionen mu~ global in SYSTEM/LOADER.LIB angegeben sein!
-; (Wird auch in KERNEL ben|tigt.)
+; The number of partitions must be specified globally in SYSTEM/LOADER.LIB
+; (Also needed in KERNEL)
 
-PartH	equ	150		; Zylinder erste Partition  (12 MB)
-PartI	equ	113		; Zylinder zweite Partition (9 MB)
-PartJ	equ	150		; Zylinder dritte Partition (12 MB)
-PartK	equ	113		; Zylinder vierte Partition (9 MB)
-PartL	equ	0		; Partitionen 5..9 nicht vorhanden
+PartH	equ	150		; Cylinder first Partition  (12 MB)
+PartI	equ	113		; Cylinder second Partition (9 MB)
+PartJ	equ	150		; Cylinder third Partition (12 MB)
+PartK	equ	113		; Cylinder fourth Partition (9 MB)
+PartL	equ	0		; Partitions 5..9 not used
 PartM	equ	0
 PartN	equ	0
 PartO	equ	0
 PartP	equ	0
 
-SpGH	equ	8		; 512-Byte-Sektoren pro Group (4k)
-SpGI	equ	8		; 512-Byte-Sektoren pro Group (4k)
-SpGJ	equ	8		; 512-Byte-Sektoren pro Group (4k)
-SpGK	equ	8		; 512-Byte-Sektoren pro Group (4k)
-SpGL	equ	1		; Dummy f}r nicht existente Partitionen
+SpGH	equ	8		; 512 Bytes per Sector Group (4k)
+SpGI	equ	8		; 512 Bytes per Sector Group (4k)
+SpGJ	equ	8		; 512 Bytes per Sector Group (4k)
+SpGK	equ	8		; 512 Bytes per Sector Group (4k)
+SpGL	equ	1		; Dummy for non-existent Partitions
 SpGM	equ	1
 SpGN	equ	1
 SpGO	equ	1
 SpGP	equ	1
 
-	dseg			; gesamter Treiber in Bank 0 (bis auf DPB's)
+	dseg			; Complete driver in Bank 0 (except for DPB's)
 
 ;***********************************************************************
-;**           IDE - Treiber (REH IDE-Interface)                       **
+;**           IDE - Driver (REH IDE-Interface)                        **
 ;***********************************************************************
 
 	if	ide
 
-; Task File Register Definitionen:
+; Task File Register Definitions:
 
-IDEBase	equ	80h		; Basisadresse IDE-Interface
+IDEBase	equ	80h		; Base address IDE-Interface
 IdeDOR	equ	IDEBase+6	; Digital Output Register
 IdeDat	equ	IDEBase+8	; Data Register
 IdeErr	equ	IDEBase+9	; Error Register
@@ -63,15 +70,15 @@ IdeCHi	equ	IDEBase+0Dh	; Cylinder High
 IdeSDH	equ	IDEBase+0Eh	; Drive and Head
 IdeCmd	equ	IDEBase+0Fh	; Command / Status
 
-; IDE Festplatten Kommandos:
+; IDE Hard Disk commands:
 
 CmdHome	equ	10h		; Recalibrate
 CmdRd	equ	20h		; Read Sector
 CmdWr	equ	30h		; Write Sector
 CmdInit	equ	91h		; Initialize Drive Params
 
-; Makros: warten, bis Festplatte bereit (Non-Busy) oder DRQ aktiv.
-; Voraussetzung: Bus-Page bereits aktiv.
+; Macros: wait until disk ready (Non-Busy) or DRQ active.
+; Prerequisite: Bus-Page already active.
 
 WaitRdy	macro
 	local	wait
@@ -87,153 +94,153 @@ wait:	in	a,(IdeCmd)
 	jr	z,wait
 	endm
 
-; Initialisierung von IDE-Festplatten (z.B. Translation Mode aktivieren).
-; Wird beim System-Boot einmal aufgerufen. Wenn die Festplatte nicht
-; reagiert, werden die DPH's H: bis K: in der Drive Table gel|scht.
+; Initialisation of IDE Hard Disks (e.g. enable Translation Mode).
+; Called once at System Boot. If the hard disk does not respond
+; then remove the DPH's for H: to K: in the Drive Table.
 
 HDInit:	iopage	BusP
 	ld	a,6
-	out	(IdeDOR),a	; IDE Festplatte: Software Reset
+	out	(IdeDOR),a	; IDE Hard Drive: Software Reset
 	ld	b,0
-	djnz	$		; (min. 3 us warten)
+	djnz	$		; (wait at least 3 us)
 	ld	a,2
-	out	(IdeDOR),a	; Software Reset aufheben.
+	out	(IdeDOR),a	; Software Reset
 	ld	hl,Cnt10
-	ldw	(hl),1000	; Z{hler auf 10 Sekunden
-	inc	hl		; Zeiger auf High-Byte des Z{hlers (Sign)
+	ldw	(hl),1000	; Delay up to 10 seconds (10 * 100ms)
+	inc	hl		; Point to high byte of counter (Sign)
 
-HDI_1:	bit	7,(hl)		; Z{hler abgelaufen ?
-	jr	nz,HDI_Ex	; ja: Festplatten-DPH's l|schen
+HDI_1:	bit	7,(hl)		; Counter expired?
+	jr	nz,HDI_Ex	; yes: zero out HDD DPH's
 	in	a,(IdeCmd)
 	bit	7,a
-	jr	nz,HDI_1	; sonst weiter warten auf Non-Busy
+	jr	nz,HDI_1	; otherwise wait for Non-Busy
 	and	11111001b
 	cp	01010000b	; Status: Ready & NoError ?
-	jr	nz,HDI_1	; Fehler --> weiter warten
+	jr	nz,HDI_1	; Error --> keep waiting
 	ld	a,Secs
-	out	(idescnt),a	; Sector Count: Anzahl Sektoren pro Spur
+	out	(idescnt),a	; Sector Count: number of sectors per track
 	ld	a,low cyls
 	out	(ideclo),a
 	ld	a,high cyls
-	out	(idechi),a	; Anzahl Zylinder angeben
+	out	(idechi),a	; Specify number of cylinders
 	ld	a,0A0h or (heads-1)
-	out	(idesdh),a	; SDH: Anzahl K|pfe -1
-	ld	a,cmdinit	; Befehl : Initialisierung
-	out	(idecmd),a	; (warten auf Non-Busy beim n{chsten Befehl)
+	out	(idesdh),a	; SDH: Number of Heads -1
+	ld	a,cmdinit	; Command : Initialise
+	out	(idecmd),a	; (wait for Non-Busy at the next command)
     if loader
 	ret
     else
-	ld	hl,SignOK	; Signon-Text: alles ok
-	jp	PMsg		; OK-Signon ausgeben, Ende
+	ld	hl,SignOK	; Signon-Text: all ok
+	jp	PMsg
     endif
 
-; Erfolglose Initialisierung:
-; betreffende DPH's der Festplatte in Drive Table l|schen.
+; Unsuccessful Initialisation:
+; Zero relevant DPH's for Hard Drives in Drive Table
 
-HDI_Ex:	ld	de,DTbl+14	; Zeiger auf Platz von DPHH
-	ld	b,2*Parts	; Byte-Z{hler f}r alle DPH's
+HDI_Ex:	ld	de,DTbl+14	; Point to Hard Drives in DPHH
+	ld	b,2*Parts	; for each partition in the DPH's
 	xor	a
 HDI_E1:	ld	(de),a
 	inc	de
-	djnz	HDI_E1		; DPH's durch 0 ersetzen
+	djnz	HDI_E1		; replace the DPH's with 0
     if loader
 	ret
     else
-	ld	hl,SignBad	; Meldung im Fehlerfall
-	jp	PMsg		; Meldung ausgeben (OK/Bad), Ende
+	ld	hl,SignBad	; Output message about Hard Drive
+	jp	PMsg
     endif
 
-; Daten von Festplatte lesen:
+; Read data from Hard Disk:
 
-RdIDE:	call	HdPrep		; Task File Register setzen, DMA-Adr. rechnen
+RdIDE:	call	HdPrep		; set Task File Register, DMA-Adr. count
 	ld	(RdDest+2),a
-	ld	(RdDest),hl	; Lese-Zieladresse f}r DMA setzen
+	ld	(RdDest),hl	; set Read destination DMA address
 	ld	a,CmdRd
-	out	(IdeCmd),a	; Befehl an Festplatte: Sektor lesen
+	out	(IdeCmd),a	; Command to Hard Disk: Read sector
 	WaitDrq
-	in	a,(IdeDat)	; ECB-IDE-Interface: LH-Flipflop setzen
+	in	a,(IdeDat)	; ECB-IDE-Interface: set LH Flipflop
 	ld	hl,RdDmaPB
-RdIDE1:	call	DmaSet		; DMA starten: Daten abliefern / abholen
+RdIDE1:	call	DmaSet		; start DMA: Submit/ pick up data
 	iopage	BusP
 	WaitRdy
 	in	a,(IdeCmd)
-	and	10001001b	; Busy, DRQ, oder Error?
-	ret	z		; nein: alles ok
+	and	10001001b	; Busy, DRQ, or Error?
+	ret	z		; no: all ok
 	ld	a,1
-	ret			; Fehler: Ende mit A=1
+	ret			; Error: End with A=1
 
-; Daten auf Festplatte schreiben:
+; Write data to Hard Disk:
 
     if not loader
-WrIDE:	call	HdPrep		; Task File Register setzen, DMA-Adr. rechnen
+WrIDE:	call	HdPrep		; set Task File Register, DMA-Adr. count
 	ld	(WrSrc+2),a
-	ld	(WrSrc),hl	; Schreib-Quelladresse f}r DMA setzen
+	ld	(WrSrc),hl	; set Write source address for DMA
 	ld	a,CmdWr
-	out	(IdeCmd),a	; Befehl an Festplatte: Sektor schreiben
+	out	(IdeCmd),a	; Command to Hard Disk: Write sector
 	WaitRdy
 	WaitDrq
 	ld	hl,WrDmaPB
-	jr	RdIDE1		; weiter wie beim Lesen
+	jr	RdIDE1		; continue to check status
     endif
 
-; Lese- bzw. Schreiboperation vorbereiten (Register setzen).
-; R}ckkehr mit phys. DMA-Adresse in AHL.
+; Prepare for Read or Write operation (set Register).
+; Return with phys. DMA address in AHL.
 
 HdPrep:	iopage	BusP
-	WaitRdy			; warten bis Platte bereit
+	WaitRdy			; wait for Ready
 	ld	a,1
-	out	(IdeSCnt),a	; Sektoranzahl immer 1
-	ld	hl,(Sector)	; log. Sektor (ab 0)
-	divu	hl,Secs		; Auft. in Head (Quotient) und Sektor (Rest)
-	or	0A0h		; (Head in A) Drive 0 dazu
-	out	(IdeSDH),a	; SDH Register ausgeben
-	ld	a,l		; phys. Sektor (ab 0)
+	out	(IdeSCnt),a	; Sector number always 1
+	ld	hl,(Sector)	; log. Sector (from 0)
+	divu	hl,Secs		; Runs in Head (Quotient) and Sector (Rest)
+	or	0A0h		; (Head in A) Drive 0
+	out	(IdeSDH),a	; SDH Register output
+	ld	a,l		; phys. Sector (from 0)
 	inc	a
-	out	(IdeSNum),a	; Sektornummer (ab 1)
-	ld	hl,(CurDPH)	; aktueller XDPH
+	out	(IdeSNum),a	; Sector nummer (from 1)
+	ld	hl,(CurDPH)	; Current XDPH
 	dec	hl
 	dec	hl
-	ldw	de,(hl)		; Offset Cylinder holen (Partitionsanfang)
+	ldw	de,(hl)		; get Offset Cylinder (start of partition)
 	ld	hl,(Track)
-	add	hl,de		; logische Spur addieren --> phys. Cylinder
+	add	hl,de		; add logical track --> phys. Cylinder
 	ld	a,l
 	out	(IdeCLo),a
 	ld	a,h
-	out	(IdeCHi),a	; Cylinder ausgeben
+	out	(IdeCHi),a	; Output Cylinder
     if loader
 	ld	a,81h
-	ld	hl,(DMA)	; DMA-Buffer in System-Bank (immer gebankt!)
+	ld	hl,(DMA)	; DMA-Buffer in System-Bank
 	ret
     else
-	in	a,(IdeCmd)	; (wegen Z280 Chipfehler)
-	jp	ClcDma		; DMA-Adresse Sektorpuffer berechnen,
-    endif			; zur}ck mit Adresse in AHL
+	in	a,(IdeCmd)	; (because of Z280 chip fault)
+	jp	ClcDma		; Calculate DMA address of sector buffer
+    endif			; back with address in AHL
 
-; DMA-Parameterblocks f}r IDE-I/O:
+; DMA Parameter blocks for IDE-I/O:
 
 RdDmaPb:defb	dal3		; DMA 3
-RdDest:	defs	3		; Ziel: einsetzen
-	defb	IdeDat,0,BusP	; Quelle: IDE Datenregister
-	defw	512		; L{nge: 512 Byte
+RdDest:	defs	3		; Destination
+	defb	IdeDat,0,BusP	; Source IDE Data register
+	defw	512		; Count: 512 Bytes
 	defw	1110000100000000b ; I/O --> MEM cont.
 
     if not loader
 WrDmaPb:defb	dal3		; DMA 3
-	defb	IdeDat,0,Busp	; Ziel: IDE Datenregister
-WrSrc:	defs	3		; Quelle: einsetzen
-	defw	512		; L{nge: 512 Byte
+	defb	IdeDat,0,Busp	; Destination: IDE Data register
+WrSrc:	defs	3		; Source
+	defw	512		; Count: 512 Bytes
 	defw	1000000100001100b ; MEM --> I/O cont.
     endif
 
 	endif			; (if ide)
 
 ;***********************************************************************
-;**           Gemeinsame Merkmaler aller Harddisk-Treiber             **
+;**           Common features of all Hard Disk Drivers                **
 ;***********************************************************************
 
 	if	hard
 
-; Texte: Signon- und Fehlermeldungen.
+; Text: Signon and error messages.
 
     if not loader
       if deutsch
@@ -246,63 +253,64 @@ SignBad:defz	'Error: Harddisk not installed',cr,lf
       endif
     endif
 
-; Partitionierung: Berechnungen. Weitere Daten in DPB's!
+; Partitioning: Calculations. More data in DPB's!
 
-OffsetH	equ	0		; Offset erste Partition immer 0
-OffsetI	equ	PartH		; Offset zweite Partition
-OffsetJ	equ	OffsetI+PartI	; Offset dritte Partition
-OffsetK	equ	OffsetJ+PartJ	; Offset vierte Partition
-OffsetL	equ	OffsetK+PartK	; Offset f}nfte Partition
-OffsetM	equ	OffsetL+PartL	; Offset sechste Partition
-OffsetN	equ	OffsetM+PartM	; Offset siebte Partition
-OffsetO	equ	OffsetN+PartN	; Offset achte Partition
-OffsetP	equ	OffsetO+PartO	; Offset neunte Partition
+OffsetH	equ	0		; Offset first Partition always 0
+OffsetI	equ	PartH		; Offset second Partition
+OffsetJ	equ	OffsetI+PartI	; Offset third Partition
+OffsetK	equ	OffsetJ+PartJ	; Offset fourth Partition
+OffsetL	equ	OffsetK+PartK	; Offset fifth Partition
+OffsetM	equ	OffsetL+PartL	; Offset sixth Partition
+OffsetN	equ	OffsetM+PartM	; Offset seventh Partition
+OffsetO	equ	OffsetN+PartN	; Offset eighth Partition
+OffsetP	equ	OffsetO+PartO	; Offset nineth Partition
 
-; Mit Schleifen-Macro f}r alle neun Partitionen berechnen:
-; - Anzahl Groups (Blocks) in der Partition,
+; Calculate with loop macro for all nine partitions:
+; - Number of Groups (Blocks) in the Partition,
 ; - Extended Disk Parameter Header,
-; - Allocation Vektoren,
-; - DPB-Parameter Block Shift, Block Mask, und Extent Mask.
-; Init-Einsprung im XDPH nur bei H: belegt, Login-Einsprung nie belegt.
-; Achtung: Arithmetik-]berlauf bei Blockzahl-Berechnung bei gro~en
-; Partitionen (> 32 MB)!!! F}r diese Partitionen direkt unterhalb von
-; "Blocks&i aset ..." eine weitere Zeile einsetzen, in der die Block-
-; anzahl direkt gesetzt wird, z.B. "BlocksK aset 4000".
+; - Allocation Vectors,
+; - DPB-Parameter Block Shift, Block Mask, and Extent Mask.
+;
+; Init entry in XDPH only for H: assigned, Login entry never used.
+; Attention: There may be arithmetic overflow in the block number for
+; large partitions (> 32 MB)!!! For these partitions insert another
+; line with a specific block number set directly below the
+; "Blocks&i aset ..." line - e.g. "BlocksK aset 4000".
 
 	irpc	i,<HIJKLMNOP>
 
-    if Part&i gt 0
-Blocks&i aset	Part&i*Heads*Secs/SpG&i	; Anzahl Groups in jeder Partition
+    if Part&i>0
+Blocks&i aset	Part&i*Heads*Secs/SpG&i	; Number of Groups in each Partition
 
 	defw	Offset&i	; Offset Tracks
 DPH&i::	defw	0,0,0,0,0,0
 	defw	DPB&i,0
       if loader
-	defw	0,BCB,BCB,-1	; Puffer im Lader, Hash disable, kein ALV
+	defw	0,BCB,BCB,-1	; Buffer in Loader, Hash disable, no ALV
       else
 	defw	ALV&i,-2,-2,-2	; ALV; GENCPM: DirBCB, DtaBCB, Hash
       endif
 	defb	0		; Hash-Bank
-      if '&i' eq 'H'
-	defw	HDInit		; Init-Einsprung
+      if '&i' = 'H'
+	defw	HDInit		; Init routine entry point
       else
-	defw	0		; weitere Partitionen kein Init
+	defw	0		; none for other Partitions
       endif
       if loader
-	defw	0,RdIDE,0	; Treiber-Einspr}nge
+	defw	0,RdIDE,0	; Driver entry points
       else
-	defw	0,RdIDE,WrIDE	; Treiber-Einspr}nge
+	defw	0,RdIDE,WrIDE	; Driver entry points
       endif
 
     if not loader
-ALV&i:	defs	(Blocks&i+7)/4	; Allocation Vektoren (2 Bit pro Block)
+ALV&i:	defs	(Blocks&i+7)/4	; Allocation Vectors (2 bits per Block)
     endif
 
-j	aset	SpG&i/2		; Berechnung des Block-Shift:
+j	aset	SpG&i/2		; Calculate the Block-Shift:
 BSH&i	aset	3
 	rept	8
 j	aset	j/2
-	if	j eq 0
+	if	j = 0
 	exitm
 	endif
 BSH&i	aset	BSH&i+1
@@ -311,8 +319,8 @@ BSH&i	aset	BSH&i+1
 BLM&i	equ	SpG&i*4-1	; Block-Mask
 
 EXM&i	aset	SpG&i/2-1	; Extent Mask
-	if	Blocks&i gt 255
-	if	EXM&i eq 0
+	if	Blocks&i > 255
+	if	EXM&i = 0
 	.printx	*** Illegal Blocksize Drive &i: ***
 	.dephase		; --> Error Return (MAKE Abort)
 	exitm
@@ -321,12 +329,12 @@ EXM&i	aset	EXM&i / 2
 	endif
 
     endif			; (if Part&i > 0)
-	endm			; (IRPC alle Partitionen)
+	endm			; (IRPC for all partitions)
 
-; DPB's f}r die Partitionen. Mehrere gleiche Partitionen k|nnen gemein-
-; samen DPB nutzen, deswegen kein automatisches Erzeugen mit Macros!
-; Hier jeweils zwei gemeinsame DPB's.
-; In DPB's noch direkt (von Hand) eintragen: Directory-Gr|~e (& Alloc.!).
+; DPB's for the Partitions. Several identical partitions can be chared.
+; Use DPB so no automatic generation by macros!
+; Here we have two common DPB's for this setup.
+; In DPB's directly enter (by Hand) Directory-Size (& Alloc.!).
 
 	cseg
 

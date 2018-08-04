@@ -11,6 +11,13 @@
 
 ; 950126 Tilmann Reh
 
+; 10-July-2018 Tony Nicholson
+; Comments translated from German to English (using Google
+; Translate with some appropriate language adjustments resulting
+; from an examination of the instruction sequences).  Also
+; corrected the syntax to be compatible with Hector Peraza's
+; ZSM4 Z80/Z180/Z280 assembler 
+
 	cseg			; BIOS Jump Table resident
 
 ;***********************************************************************
@@ -19,7 +26,7 @@
 
     if not loader
 
-	jp	Boot		; Kaltstart
+	jp	Boot		; Coldstart
 WBootE::jp	WBoot		; Warmstart
 	jp	?ConSt		; Con In Status
 	jp	?ConIn		; Con In
@@ -27,37 +34,37 @@ WBootE::jp	WBoot		; Warmstart
 	jp	?List		; List Out
 	jp	?AuxOut		; Aux Out
 	jp	?AuxIn		; Aux In
-	jp	Home		; Home f}r Laufwerke
-	jp	SelDsk		; Laufwerk selektieren
-	jp	SetTrk		; Track setzen
-	jp	SetSec		; Sektor setzen
-	jp	SetDma		; DMA-Adresse setzen
-	jp	Read		; Phys. Sektor lesen
-	jp	Write		; Phys. Sekt. schreiben
+	jp	Home		; Home for Drives
+	jp	SelDsk		; Select Disk
+	jp	SetTrk		; Set Track
+	jp	SetSec		; Set Sector
+	jp	SetDma		; Set DMA Address
+	jp	Read		; Phys. Sector Read
+	jp	Write		; Phys. Sector Write
 	jp	?ListSt		; List Status
-	jp	SecTrn		; Sektor log.-> phys.
+	jp	SecTrn		; Sector Translation log.-> phys.
 	jp	?ConOst		; Con Out Status
 	jp	?AuxIst		; Aux In Status
 	jp	?AuxOst		; Aux Out Status
-	jp	DevTbl		; Device-Tabellenadr.
-	jp	?DevIni		; Baudrate setzen (Device init)
-	jp	DrvTbl		; Disk-Tabellenadr.
-	jp	MultIO		; Multio-Z{hler setzen
+	jp	DevTbl		; Device Table
+	jp	?DevIni		; Set Baudrate (Device init)
+	jp	DrvTbl		; Drive Table
+	jp	MultIO		; Set Multiple IO
 	jp	Flush		; Flush Buffers
-	jp	Move		; Blockverschiebung
-	jp	?Time		; Uhrenansteuerung
-	jp	SelMem		; Bank f}r CPU
-	jp	SetBnk		; Bank f}r DMA
-	jp	XMove		; MOVE Banks setzen
+	jp	Move		; Block Move
+	jp	?Time		; Clock Time
+	jp	SelMem		; Bank for CPU
+	jp	SetBnk		; Bank for DMA
+	jp	XMove		; Set MOVE between banks
 	jp	?UserF		; Format-Manager (USERF)
 	jp	0		; Reserved for System
 	jp	0		; Reserved for System
 
 ;***********************************************************************
-;**               kurze Vor-Ort-Einspr}nge                            **
+;**               System Call Jumps                                   **
 ;***********************************************************************
 
-; Umleitung einiger BIOS-Aufrufe auf System Calls:
+; Redirect some BIOS calls to a System Call (SC):
 
 	irp	Name,<ConSt,ConIn,ConOut,List,AuxOut,AuxIn,ListSt>
 ?&Name:	sc	sc$&Name
@@ -69,19 +76,19 @@ WBootE::jp	WBoot		; Warmstart
 	ret
 	endm
 
-DevTbl:	ld	hl,CTbl		; I/O-Device-Tabelle
+DevTbl:	ld	hl,CTbl		; I/O-DeviceTable
 	ret
 
 	dseg			; banked
 
-DrvTbl:	ld	hl,DTbl		; Laufwerks-Tabelle
+DrvTbl:	ld	hl,DTbl		; Drive Table
 	ret
 
 Flush:	xor	a
-	ret			; kein Fehler, Aufruf ignorieren
+	ret			; no error, ignore call
 
 ;***********************************************************************
-;**       Umschalten auf I/O-Page BUSP beim Verlassen des BIOS        **
+;**       Switch to I/O-Page BUSP when leaving the BIOS               **
 ;***********************************************************************
 
 ResIOP::push	bc
@@ -94,219 +101,219 @@ ResIOP::push	bc
     endif
 
 ;***********************************************************************
-;**       Ausgabe-Routinen f}r Strings/Zahlen in Hex/Dezimal          **
+;**       Output Routines for Strings/Numbers in Hex/Decimal          **
 ;***********************************************************************
 
 	dseg
 
-; PMSG gibt String ab Adresse (HL) aus. 00 = Ende des Strings 
+; PMSG Print string at address (HL). 00 = End of string
 
-PMsg::	ld	a,(hl)		; Zeichen holen
+PMsg::	ld	a,(hl)		; Is it the end?
 	or	a		; NUL ?
-	ret	z		; Ende des Strings erreicht: RETURN
+	ret	z		; Yes: RETURN
     if loader
 	cp	'$'
-	ret	z		; Loader: Auch bei '$' abbrechen
+	ret	z		; Loader: Also allow '$'
     endif
-	call	COA		; Zeichen ausgeben
-	inc	hl		; Zeiger erh|hen
-	jr	PMsg		; Schleife bis NUL
+	call	COA		; Output character
+	inc	hl		; point to next
+	jr	PMsg		; and loop until NUL
 
-; HEXADR und HEXBYT geben Wert in HL bzw. A hexadezimal aus.
-; HL und DE unver{ndert, AF und C ver{ndert.
+; HEXADR and HEXBYT output value in HL or A in hexadecimal.
+; HL and DE unchanged, AF and C changed.
 
-HexAdr::ld	a,h		; High-Byte der Adresse
+HexAdr::ld	a,h		; High-Byte of address
 	call	HexByt
-	ld	a,l		; Low-Byte der Adresse
-HexByt::push	af		; Byte retten (f}r low-Nybble)
+	ld	a,l		; Low-Byte of address
+HexByt::push	af		; Save Byte (for low-Nibble)
 	rra
 	rra
 	rra
-	rra			; oberes Nybble nach unten
-	call	Nyb		; ausgeben
-	pop	af		; unteres Nybble holen
-Nyb:	and	0Fh		; Nybble maskieren
+	rra			; upper nibble down
+	call	Nyb		; Output it
+	pop	af		; lower nibble
+Nyb:	and	0Fh		; mask low bits
 	cp	10
-	ccf			; ab 10 : Carry gesetzt
-	adc	a,'0'		; -> 30..39 und 3B..40 (mit HCY gesetzt)
-	daa			; -> 30..39 und 41..46
+	ccf			; above 10 : Set Carry
+	adc	a,'0'		; -> 30..39 and 3B..40 (set with Half carry)
+	daa			; -> 30..39 and 41..46
 COA::	ld	c,a
 CO::
     if loader
-ConOut::outchr	c		; Console-Out-Macro (public f}r LDOS)
+ConOut::outchr	c		; Console Out Macro (public for LDOS)
     else
 	push	bc
-	push	de		; alle Register retten (au~er AF)
+	push	de		; save all registers (except AF)
 	push	hl
-	sc	sc$conout	; Nybble ausgeben
+	sc	sc$conout	; Output character via System Call
 	pop	hl
-	pop	de		; Register wiederherstellen
+	pop	de		; restore registers
 	pop	bc
     endif
 	ret
 
-; PDEC gibt Wert in HL (0..65535) dezimal an Console aus.
+; PDEC output value HL (0..65535) in decimal to Console.
 
-PDec::	push	de		; bei Rekursion: letzten Rest retten
+PDec::	push	de		; at recursion: save last remainder
 	ld	de,0		; DEHL := HL
 	divuw	dehl,10		; HL = HL/10, DE = Rest
-	call	nz,PDec		; Rekursion wenn Zehner vorhanden
+	call	nz,PDec		; Recursion if tens are present
 	ld	a,e
-	add	a,'0'		; Rest -> ASCII in A
-	pop	de		; voriger Rest
-	jr	COA		; Zeichen ausgeben
+	add	a,'0'		; Units -> ASCII in A
+	pop	de		; Restore previous
+	jr	COA		; Output digit
 
-; SIZOUT gibt Wert in HL dezimal aus, gefolgt von 'k' (f}r Drive-Gr|~en).
-; Wird benutzt von Initialisierungs-Routinen der optionalen Drives.
+; SIZOUT output value in HL in decimal followed by 'k' (for Drive Sizes).
+; Used by initialisation routines when detecting storage Drive options.
 
     if not loader
 
-SizOut::call	PDec		; dezimale Ausgabe
+SizOut::call	PDec		; Decimal Output
 	ld	c,'k'
-	jr	CO		; 'k' dahinter, Ende
+	jr	CO		; followed by a 'k'
 
     endif
 
 ;***********************************************************************
-;**       Disk-I/O-Einspr}nge und gemeinsame Routinen/Verteiler       **
+;**       Disk-I/O-Entries and Common Routines                        **
 ;***********************************************************************
 
-; Generelle Informationen zur Disk-Treiber-Struktur:
-; F}r jedes Laufwerk wird nur ein XDPH ben|tigt, der hinter dem normalen
-; DPH die Einsprungadressen des Treibers enth{lt (Init, Login, Read, Write
-; mit den Offsets 25, 27, 29 und 31). Ansonsten gibt es in den jeweiligen
-; Treibern keine 'Publics'. Die Disk-Parameter und evtl. Sonderbehandlungen
-; befinden sich vollst{ndig in den Treibermodulen.
-; Die Treiber sollen bei der Initialisierung das Vorhandensein der ent-
-; sprechenden Hardware pr}fen und ggf. den Eintrag in der Drive Table
-; l|schen. Alle Treiberroutinen (au~er Init) m}ssen beim Beenden die I/O-
-; Page auf ECB-Bus (BusP) zur}ckstellen. Existiert eine Treiberroutine
-; nicht, mu~ der Wert 0 in den XDPH eingetragen werden.
+; General Information about the Disk Driver structure:
+; For each drive only one XDPH is needed - each follows the other.
+; DPH contains the entry addresses for the driver (Init, Login, Read, Write
+; with offsets 25, 27, 29 and 31).
+; The disk parameters and specific processing for each drive type are
+; in each driver module.
+; The driver modules contact their own detection routine to determine
+; if the relevant hardware is present and clears the entry in Drive Table
+; if a device is not detected. All driver routines (except Init) must reset
+; the I/O-Page to the ECB-Bus (BusP) prior to returning.  If there is no
+; corresponding driver routine, the address in the XDPH should be 0000h.
 
 
-; Disk-Positionierungsroutinen: Werte nur abspeichern, tats{chliche 
-; Positionierung erfolgt bei Sektor-Read oder Write.
-; HOME: Identisch mit SETTRK 0 (bei Floppies wird beim 'Initial Select'
-; ein FDC-HOME durchgef}hrt).
+; Disk Positioning routines: Save values only.  Actual positioning is
+; done at sector read or write.
+; HOME: Is identical to SETTRK 0 (for Floppies an 'Initial Select' causes
+; a FDC-HOME to be performed).
 
 Home::	ld	bc,0
-SetTrk::ld	(Track),bc	; Spur setzen
+SetTrk::ld	(Track),bc	; Set Track
 	ret
 
-SetSec::ld	(Sector),bc	; Sektor setzen
+SetSec::ld	(Sector),bc	; Set Sector
 	ret
 
-SetDMA::ld	(DMA),bc	; log. DMA-Adresse
+SetDMA::ld	(DMA),bc	; log. DMA Address
 	ret
 
     if not loader
-SetBnk::ld	(DBnk),a	; DMA-Bank setzen
+SetBnk::ld	(DBnk),a	; Set DMA Bank
 	ret
 
 MultIO:	ld	a,c
-	ld	(MltCnt),a	; Multi-Sector-Count speichern
+	ld	(MltCnt),a	; Set Multi-Sector-Count
 	ret
     endif
 
-; Sektortabellen-]bersetzung. Bei ]bersetzung sind nur 8-Bit-Sektor-
-; nummern m|glich, ohne ]bersetzung (TRANS=0) 16 Bit (Festplatte!).
+; Sector Translation Tables. For translation, only 8-Bit Sector-
+; Numbers possible, Without translation (TRANS=0) 16 Bit (Hard Disk).
 
 SecTrn::ld	l,c		; log. in BC --> phys. in HL (Table in DE)
 	ld	h,b
 	ld	a,d
 	or	e
-	ret	z		; bei DE=0 Return mit HL=BC (Skew 1, Anf. 0)
-	ex	de,hl		; Tabelle in HL
-	add	hl,bc		; log. Sektor addieren
-	ld	l,(hl)		; phys. Sektor lesen
-	ld	h,b		; (B=0, da in BC 8-Bit-Sektornummer)
+	ret	z		; with DE=0 Return with HL=BC (Skew 1, from 0)
+	ex	de,hl		; Table in HL
+	add	hl,bc		; log. Sector addresses
+	ld	l,(hl)		; Read phys. Sector
+	ld	h,b		; (B=0, since BC was an 8-bit-SectorNumber)
 	ret
 
-; Select Disk: Alle globalen Funktionen hier ausf}hren.
-; Bei Bedarf verzweigen in den entsprechenden Disk-Treiber. Dabei ist
-; der Laufwerkscode in C und das Initial-Select-Flag in E g}ltig.
+; Select Disk: Execute all global functions here.
+; If necessary branch to the appropriate driver. It is
+; the Drive code in C and the Initial-Select-Flag in E.
 
-SelDsk::ld	a,c		; Drive-Code nach A
-	ld	(Drive),a	; Drive sichern (0..15 max.)
+SelDsk::ld	a,c		; Drive-Code to A
+	ld	(Drive),a	; Drive (0..15 max.)
 	add	a,a
 	exts	a		; HL = 2* Drive
-	ldw	hl,(hl+DTbl)	; DPH-Adresse aus Tabelle holen
-	ld	(CurDPH),hl	; Adresse des DPH speichern
+	ldw	hl,(hl+DTbl)	; DPH Address from table
+	ld	(CurDPH),hl	; Save the current DPH address
 	ld	a,l
 	or	h
-	ret	z		; falls 0, Return (Illegal Drive)
-	ldw	hl,(hl+27)	; Login-Einsprung aus XDPH
+	ret	z		; if 0, Return (Illegal Drive)
+	ldw	hl,(hl+27)	; Login entry from XDPH
 	ld	a,h
 	or	l
-	jp	nz,(hl)		; Treiber aufrufen, falls vorhanden
-	ld	hl,(CurDPH)	; sonst DPH nach HL
+	jp	nz,(hl)		; Call driver, if non-zero
+	ld	hl,(CurDPH)	; load DPH to HL
 	ret
 
-; Lesen und Schreiben von (physikalischen) Sektoren:
+; Reading and Writing of (physical) Sectors:
 
     if not loader
-Write::	ld	de,31		; Offset Write-Einsprung im XDPH
-	jr	DoRW		; gemeinsamer Treiber f}r R/W
+Write::	ld	de,31		; Offset to Write routine entry in XDPH
+	jr	DoRW		; common driver for R/W
     endif
 
-Read::	ld	de,29		; Offset Read-Einsprung im XDPH
+Read::	ld	de,29		; Offset to Read routine entry in XDPH
 
-DoRW:	ld	hl,(CurDPH)	; aktueller XDPH
+DoRW:	ld	hl,(CurDPH)	; current XDPH
 	ld	a,h
 	or	l
 	ld	a,1
-	ret	z		; DPH=0 : Return mit A=1 (Permanent Error)
+	ret	z		; DPH=0 : Return with A=1 (Permanent Error)
 	add	hl,de
-	ldw	hl,(hl)		; Read/Write-Einsprung aus XDPH
-	jp	(hl)		; Treiber aufrufen
+	ldw	hl,(hl)		; Fetch Read/Write routine from XDPH
+	jp	(hl)		; Call it
 
-; Drive Table. Nicht vorhandene Laufwerke m}ssen hier als 0 definiert werden!
-; Verteilung der log. Laufwerke: A-D in DISKIO, E-G in HALBL, H-P in HARD.
+; Drive Table. Non-existing drives must be defined as 0000 entries!
+; Distribution of log. Drives: A-D in DISKIO, E-G in HALBL, H-P in HARD.
 
-DTbl::	defw	DPHA,DPHB,DPHC,DPHD ; Floppy-Grundausstattung On-Board
-	defw	DPHE		; MDrive im eigenen RAM immer da
+DTbl::	defw	DPHA,DPHB,DPHC,DPHD ; Floppy Disk equipment On-Board
+	defw	DPHE		; MDrive in your own RAM always present
 
     if ctram
-	defw	DPHF		; Falls vorhanden: c't 1 MB RAM-Disk
+	defw	DPHF		; If available: c't 1 MB RAM-Disk
     else
 	defw	0
     endif
 
     if ctsolid
-	defw	DPHG		; Falls vorhanden: c't Solid-State-Disk
+	defw	DPHG		; If available: c't Solid-State-Disk
     else
 	defw	0
     endif
 
-  if hard			; Falls vorh.: Festplatte (IDE/OMTI)
+  if hard			; If present: Hard Disk (IDE/OMTI)
     Part aset 0
-    irpc i,<HIJKLMNOP>		; alle neun m|glichen Partitionen durchgehen
+    irpc i,<HIJKLMNOP>		; Up to nine possible partitions
       Part aset Part+1
-      if Part le Parts
-	defw	DPH&i		; vorhandene Partition: DPH eintragen
+      if Part <= Parts
+	defw	DPH&i		; existing partition: enter DPH
       else
-	defw	0		; sonst Null setzen
+	defw	0		; otherwise set Null
       endif
     endm
   else
-	defw	0,0,0,0,0,0,0,0,0 ; keine HD: Drives H..P nicht vorhanden
+	defw	0,0,0,0,0,0,0,0,0 ; no HD: Drives H..P not available
   endif
 
-; Globale Variablen beim Disk-I/O:
+; Global Variables for Disk-I/O:
 
-CurDPH::defw	0		; Adresse des aktuellen DPH
-Drive::	defb	0		; logisches Laufwerk (0..15)
-Track::	defw	0		; logische Spur (0..65535)
-Sector::defw	0		; logischer Sektor (0..65535)
-DMA::	defw	0		; logische DMA-Adresse
+CurDPH::defw	0		; Address of current DPH
+Drive::	defb	0		; Logical Drive (0..15)
+Track::	defw	0		; Logical Track (0..65535)
+Sector::defw	0		; Logical Sector (0..65535)
+DMA::	defw	0		; Logical DMA Address
     if not loader
 MltCnt::defb	0		; Multi-Sector-Count (max. 128)
-DBnk::	defb	0		; logische DMA-Bank
+DBnk::	defb	0		; Logical DMA-Bank
     endif
 
-Buffer::defs	128		; Allgemeiner Scratch-Buffer (zB AutoFormat)
+Buffer::defs	128		; General scratch buffer (e.g. AutoFormat)
     if loader
-	defs	1024-128	; Loader: insgesamt 1k als Sektorpuffer!
+	defs	1024-128	; Loader: total 1k as sector buffer!
 BCB::	defb	-1,0,0,0,0,0	; 1 deblocking buffer
 	defw	0,0,Buffer
     endif

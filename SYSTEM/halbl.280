@@ -8,111 +8,119 @@
 
 ; 950314 Tilmann Reh
 
-; Treiber f}r Pseudo-Drives. Unterst}tzt werden ein MDrive im CPU280-RAM
-; (der gesamte Speicher abz}glich 256k Systemspeicher) als Laufwerk E:,
-; eine c't-1MB-RAM-Disk beliebiger Kapazit{t als Laufwerk F:, und eine
-; c't-Solid-State-Disk (mit EPROM- oder SRAM-Best}ckung) beliebiger
-; Kapazit{t als Laufwerk G:. Bei den c't-Karten wird der Speicherausbau
-; anhand der User-Jumper erkannt und der DPB entsprechend angepa~t.
+; 10-July-2018 Tony Nicholson
+; Comments translated from German to English (using Google
+; Translate with some appropriate language adjustments resulting
+; from an examination of the instruction sequences).  Also
+; corrected the syntax to be compatible with Hector Peraza's
+; ZSM4 Z80/Z180/Z280 assembler 
 
-spezial	equ	false		; Option: Spezial-Umbau c't Solid-State 768k
+; Driver for Pseudo-Drives. An MDrive is supported in the CPU280-RAM
+; (using the total memory size minus 256k System memory) as drive E:,
+; A circuit board 1MB-RAM-Disk of any capacity as drive F:, and one
+; circuit board Solid-State-Disk (with EPROM or SRAM equipment) of any
+; capacity as drive G:. On the circuit cards the memory expansion
+; is recognised by the user jumper and adapted to the DPB accordingly.
+
+spezial	equ	false	; Option: Special conversion c't Solid-State 768k
 
 	dseg			; banked
 
 ;***********************************************************************
-;**           Ansteuerung des MDrive (internes RAM)                   **
+;**           Control of MDrive (internal onboard RAM)                **
 ;***********************************************************************
 
-; Organisation des MDrive: 256 Sektoren pro Spur (d.h. 32k pro Spur),
-; Spuranzahl je nach Speicherausbau 8 (512k), 24 (1M), 56 (2M), 120 (4M).
+; Organisation of MDrive: 256 Sectors per Track (i.e. 32k per Track),
+; The number of tracks depends on the memory configuration - 8 (512k),
+; 24 (1M), 56 (2M), 120 (4M).
 
-; Initialisierung: Feststellen der RAM-Gr|~e (NVRAM) und Dimensionieren
-; der MDrive-Kapazit{t. Danach Meldung wegen Kapazit{t.
-; Falls im Lader: Pr}fen der Directory, ggf. Initialisierung. Einspr}nge
-; brauchen nicht gesetzt zu werden, da MDrive immer das erste Laufwerk!
+; Initialisation: Determine the RAM size (NVRAM) and set the capacity
+; for the MDrive. Output a message once this is determined.
+; If in the loader: Check the Directory, initialse entries if necessary.
+; Doesn't need to be setup because the MDrive is always the first drive.
 
 MDrIni:	iopage	BoardP
-	in	a,(s$Mem)	; Speicherausbau: Anzahl 512k-Blocks
-	ld	h,a		; *256 = Anzahl 2k-Blocks (wenn L=0)
+	in	a,(s$Mem)	; Memory capacity: 512k-Blocks
+	ld	h,a		; *256 = number of 2k-Blocks (if L=0)
 	dec	h
-	ld	l,7Fh		; 128 abziehen f}r System, DSM ist Wert-1
-	ld	(DPBE+5),hl	; DSM speichern
+	ld	l,7Fh		; Subtract 128 for System, DSM is value-1
+	ld	(DPBE+5),hl	; Save DSM
 	cp	1		; (HL = 127/383/895/1919 = 7F/17F/37F/77F)
 	jr	nz,MDrIn1
-	ld	(DPBE+4),a	; 256k MDrive: EXM = 1 (0 Default, ab 768k)
+	ld	(DPBE+4),a	; 256k MDrive: EXM = 1 (0 Default, from 768k)
 MDrIn1:	cp	5
-	jr	nc,MDrIn3	; }ber 2M RAM: DPBE schon korrekt
-	ld	bc,255		; DRM bei 256 Eintr{gen
-	ld	de,00F0h	; ALV bei 256 Eintr{gen
+	jr	nc,MDrIn3	; about 2M RAM: DPBE already correct
+	ld	bc,255		; DRM with 256 entries
+	ld	de,00F0h	; ALV with 256 entries
 	cp	3
-	jr	c,MDrIn2	; bis 1M: diese Werte verwenden
-	ld	e,c		; }ber 1M: ALV = 00FFh
+	jr	c,MDrIn2	; to 1M: use these values
+	ld	e,c		; over 1M: ALV = 00FFh
 	inc	b		; DRM = 511
 MDrIn2:	ld	(DPBE+7),bc
-	ld	(DPBE+9),de	; DRM und ALV in DPB einsetzen
+	ld	(DPBE+9),de	; use DRM and ALV in DPB
 MDrIn3:
     if loader
-	jp	DirIni		; Lader: evtl. Directory Init, dann Ende!
+	jp	DirIni		; Loader: possibly init Directory, then End!
     else
 	inc	hl
-	add	hl,hl		; Kapazit{t in KB
+	add	hl,hl		; Capacity in KB
 	push	hl
 	ld	hl,MDrSgn
-PrtSiz:	call	PMsg		; Meldung ausgeben
-	pop	hl		; Kapazit{t in KB
-	call	SizOut		; ausgeben
+PrtSiz:	call	PMsg		; Output message
+	pop	hl		; Capacity in KB
+	call	SizOut		; Output the size
 	ld	hl,CRLF
-	jp	PMsg		; CRLF dahinter, Ende
+	jp	PMsg		; End by outputting a newline
     endif
 
-; GETADR berechnet physikalische Adresse des zu bearbeitenden Sektors.
+; GETADR calculates the physical address of the sector to be processed.
 ; Bit 21 20 19 18 17 16, 15 14 13 12 11 10 09 08, 07 06 05 04 03 02 01 00
 ; Inh. T  T  T  T  T  T,  T  S  S  S  S  S  S  S,  S  x  x  x  x  x  x  x
-; Dazu wird 840000 addiert (Beginn des MDrive hinter 256k System).
-; Adre~}bergabe in AHL (24 Bit).
+; Add 840000h to address (beginning of MDrive is after 256k System area).
+; Address transfer in AHL (24 Bit).
 
 GetAdr:	ld	a,(Track)
 	srl	a
-	ld	b,a		; Spur /2 ergibt sp{ter 'Bank'
+	ld	b,a		; Track /2 will result in 'Bank' later
 	ld	a,(Sector)
-	rra			; sector/2 = Page (CY noch aus Track-Bit 0)
+	rra			; sector/2 = Page (CY still from Track-Bit 0)
 	ld	l,0
-	rr	l		; Einschieben in Low-Adr. -> 0 oder 80h
-	ld	h,a		; in HL phys. Adresse
+	rr	l		; Insert in Low-Adr. -> 0 or 80h
+	ld	h,a		; in HL phys. Address
 	ld	a,b		; in A phys. Bank
-	add	a,84h		; phys. Bank des MDrive-Anfangs
+	add	a,84h		; phys. Bank of MDrive start
 	ret
 
-MDrRd:	call	GetAdr		; Phys. Adresse (Quelle)
+MDrRd:	call	GetAdr		; Phys. Address (Source)
 	ld	(Source),hl
-	ld	(Source+2),a	; als Quelle setzen
-	call	ClcDMA		; phys. Zieladresse (AHL)
+	ld	(Source+2),a
+	call	ClcDMA		; phys. destination address (AHL)
 	ld	(Dest),hl
-	ld	(Dest+2),a	; phys. Zieladresse speichern
-	jr	MDrSet		; DMA in Gang setzen und RET
+	ld	(Dest+2),a
+	jr	MDrSet		; Start DMA and RET
 
-MDrWr:	call	GetAdr		; phys. Zieladresse berechnen
+MDrWr:	call	GetAdr		; phys. Address (Destination)
 	ld	(Dest),hl
-	ld	(Dest+2),a	; als Ziel setzen
-	call	ClcDMA		; phys. Quelladresse (AHL)
+	ld	(Dest+2),a
+	call	ClcDMA		; phys. source address (AHL)
 	ld	(Source),hl
-	ld	(Source+2),a	; phys. Quelladresse speichern
+	ld	(Source+2),a
 
-; Descriptor in DMA-Parameterblock einsetzen, DMA starten und Ende.
-; Dieser Einsprung und der DMA-PB wird auch von den anderen Treibern genutzt.
+; Insert descriptor into DMA Parameter block, start DMA and end.
+; This entrypoint and the DMA-PB are also used by other drivers.
 
 MDrSet:	ld	hl,1000000100000000b ; Descriptor: Mem --> Mem, Bytes Cont.
 XDrSet:	ld	(Dscrpt),hl
 	ld	hl,Xfer
 	call	DmaSet		; DMA 3 init --> transfer
-	iopage	BusP		; wieder auf Bus-Page schalten
-	xor	a		; kein Fehler
+	iopage	BusP		; switch back to Bus-Page
+	xor	a		; no errors
 	ret
 
 Xfer:	defb	dal3		; DMA 3
 Dest:	defs	3
 Source:	defs	3
-	defw	128		; L{nge: 128 Byte (alle Pseudo-Drives)
+	defw	128		; Length: 128 Byte (all Pseudo-Drives)
 Dscrpt:	defs	2
 
   if loader
@@ -125,11 +133,11 @@ MDrQry:	defz	cr,lf,'Erase MDrive ? '
 MDrLbl:	defb	20h,'MDRIVE     ',31h,0,0,0
 	defw	0,0,0,0,Date,0,Date,0
   else
-MDrSgn:	defz	'E: MDrive '	; Meldung in allen Sprachen gleich...
+MDrSgn:	defz	'E: MDrive '
 CRLF:	defz	cr,lf
   endif
 
-; Extended Disk Parameter Header & Allocation Vektoren:
+; Extended Disk Parameter Header & Allocation Vectors:
 
 DPHE::	defw	0,0,0,0,0,0
 	defw	DPBE,0
@@ -139,14 +147,14 @@ DPHE::	defw	0,0,0,0,0,0
 	defw	ALVE,-2,-1,-2
     endif
 	defb	0
-	defw	MDrIni,0,MDrRd,MDrWr ; Treiber-Einspr}nge
+	defw	MDrIni,0,MDrRd,MDrWr ; Driver entry points
 
-EBlks	equ	1920		; Maximum (bei 4M Speicherausbau)!
+EBlks	equ	1920		; Maximum (with 4M memory expansion)!
     if not loader
 ALVE:	defs	(EBlks+7)/4	; Allocation Vector (2 Bit)
     endif
 
-	cseg			; DPB mu~ resident sein!
+	cseg			; DPB must be resident
 
 DPBE:	defw	256		; 128 byte sec/trk
 	defb	4,15		; block shift, mask (2k)
@@ -161,88 +169,88 @@ DPBE:	defw	256		; 128 byte sec/trk
 	dseg
 
 ;***********************************************************************
-;**           Ansteuerung der c't-1-MB-RAM-Disk                       **
+;**           Control of the  c't-1-MB-RAM-Disk                       **
 ;***********************************************************************
 
 	if	ctram
 
-; Definition der I/O-Adressen:
+; Definition of I/O addresses
 
-ctrBase	equ	5Ch		; Basisadresse
-ctrDat	equ	ctrBase		; Datenregister RAM-Floppy
-ctrSec	equ	ctrBase+1	; Sektorregister RAM-Floppy
-ctrTrk	equ	ctrBase+2	; Spurregister RAM-Floppy
-ctrSta	equ	ctrBase+3	; Statusregister RAM-Floppy
+ctrBase	equ	5Ch		; Base address
+ctrDat	equ	ctrBase		; Data register RAM-Floppy
+ctrSec	equ	ctrBase+1	; Sector register RAM-Floppy
+ctrTrk	equ	ctrBase+2	; Track register RAM-Floppy
+ctrSta	equ	ctrBase+3	; Status register RAM-Floppy
 
-; Initialisierung: Feststellen der RAM-Gr|~e (Jumper) und dimensionieren
-; der RAM-Disk-Kapazit{t. Danach Meldung wegen Kapazit{t. Bei Fehler
-; Drive-Table-Eintrag l|schen und entsprechend melden.
+; Initialisation: Determine the RAM size (Jumper) and size the RAM
+; disk capacity. Output message to confirm device. In case of error
+; delete drive table entry and report accordingly.
 
 ctrIni:	iopage	BusP
-	in	a,(ctrSta)	; RAM-Disk F: auf Existenz pr}fen
+	in	a,(ctrSta)	; RAM-Disk F: check for existence
 	inc	a
-	jr	z,KillF		; wenn nicht da: Eintrag l|schen, Meldung
-	and	0C0h		; Gr|~enerkennungs-Bits
+	jr	z,KillF		; not there: Delete entry and output message
+	and	0C0h		; Size detection bits
 	rlca
-	rlca			; nach ganz rechts schieben
-	inc	a		; m|glich: 1..4 Banks best}ckt
+	rlca			; push to the far right
+	inc	a		; possible: 1..4 Banks installed
 	ld	h,a
-	ld	l,0		; nach HL als 256..1024
+	ld	l,0		; to HL as 256..1024
 	srl	h
-	rr	l		; halbiert: 128..512 = Anzahl 2k-Groups
+	rr	l		; halved: 128..512 = number of 2k-Groups
 	dec	hl
-	ld	(DPBF+5),hl	; DSM in DPB speichern
+	ld	(DPBF+5),hl	; save DSM to DPB
 	bit	0,h		; (HL = 127/255/383/511 = 7F/FF/17F/1FF)
 	jr	nz,ctrIn1
-	ld	(DPBF+4),1	; <= 512k : EXM = 1 einsetzen (0 Default)
+	ld	(DPBF+4),1	; <= 512k : insert EXM = 1 (0 Default)
 ctrIn1:
     if loader
 	ld	hl,ctrAdr
 	ld	de,DrvRd
 	ld	bc,8
-	ldir			; Adressen f}r DirIni einsetzen
-	jp	DirIni		; Lader: evtl. Directory Init, dann Ende!
-ctrAdr:	defw	ctrRd,ctrWr,ctrLbl,ctrQry ; Einsprungadressen f}r RAM-Disk
+	ldir			; copy routine addresses for DirIni
+	jp	DirIni		; Loader: possibly init Directory and end!
+ctrAdr:	defw	ctrRd,ctrWr,ctrLbl,ctrQry ; Routine addresses for RAM-Disk
     else
 	inc	hl
-	add	hl,hl		; Kapazit{t in KB
-	push	hl		; auf Stack
+	add	hl,hl		; Capacity in KB
+	push	hl		; on Stack
 	ld	hl,ctrSgn
-	jp	PrtSiz		; Meldung und Kapazit{t ausgeben
+	jp	PrtSiz		; Output message and capacity
     endif
 
 KillF:	ld	hl,0
-	ld	(DTbl+10),hl	; Eintrag von DPHF l|schen
+	ld	(DTbl+10),hl	; Delete entry from DPHF
     if loader
 	ret
     else
 	ld	hl,ctrBad
-	jp	PMsg		; Fehlermeldung und Ende
+	jp	PMsg		; Print controller bad and end
     endif
 
-; c't-RAM-Floppy: Sektor- und Spurregister vertauscht angesprochen, damit 
-; Autosize nur DSM ver{ndern mu~ (wegen Bank-Select durch "Sektor"register).
+; c't RAM Floppy: Sector and Track registers are reversed so AutoSize
+; needs to change the DSM (due to Bank Select by "Sector" register).
 
-ctrRd:	iopage	BusP		; externe Karten am ECB-Bus
+ctrRd:	iopage	BusP		; external cards on ECB-Bus
 	ld	a,(Sector)
-	out	(ctrTrk),a	; Sektorregister setzen
+	out	(ctrTrk),a	; set Sector register
 	ld	a,(Track)
-	out	(ctrSec),a	; Spurregister setzen
+	out	(ctrSec),a	; set Track register
 	ld	hl,ctrDat
-	ld	(Source),hl	; RAM-Floppy-Datenport als Quelle
-	jp	ctRd		; DMA f}r ECB-Read prog., Ende
+	ld	(Source),hl	; RAM-Floppy-Data port as source
+	jp	ctRd		; DMA for ECB-Read prog., End
 
-ctrWr:	iopage	BusP		; externe Karten am ECB-Bus
+ctrWr:	iopage	BusP		; external cards on ECB-Bus
 	in	a,(ctrSta)	; Statusport RAM-Disk
 	and	2
 	ret	nz		; WRITE-PROTECTED, Error-Code 2
 	ld	a,(Sector)
-	out	(ctrTrk),a	; Sektorregister setzen
+	out	(ctrTrk),a	; set Sector register
 	ld	a,(Track)
-	out	(ctrSec),a	; Spurregister setzen
+	out	(ctrSec),a	; set Track register
 	ld	hl,ctrDat
-	ld	(Dest),hl	; RAM-Floppy-Datenport als Ziel
-	jp	ctWr		; DMA f}r ECB-Write prog., Ende
+	ld	(Dest),hl	; RAM-Floppy-Date port as destination
+	jp	ctWr		; DMA for ECB-Write prog., End
 
   if loader
     if deutsch
@@ -263,7 +271,7 @@ ctrBad:	defz	'Error: RAM-Disk not installed',cr,lf
     endif
   endif
 
-; Extended Disk Parameter Header & Allocation Vektoren:
+; Extended Disk Parameter Header & Allocation Vectors:
 
 DPHF::	defw	0,0,0,0,0,0
 	defw	DPBF,0
@@ -273,9 +281,9 @@ DPHF::	defw	0,0,0,0,0,0
 	defw	ALVF,-2,-1,-2
     endif
 	defb	0
-	defw	ctrIni,0,ctrRd,ctrWr ; Treiber-Einspr}nge
+	defw	ctrIni,0,ctrRd,ctrWr ; Driver entry points
 
-FBlks	equ	512		; Maximal 512 Blocks = 1 MB
+FBlks	equ	512		; Maximum 512 Blocks = 1 MB
     if not loader
 ALVF:	defs	(FBlks+7)/4	; Allocation Vector (2 Bit)
     endif
@@ -297,126 +305,126 @@ DPBF:	defw	256		; 128 byte sec/trk
 	endif			; (ctram)
 
 ;***********************************************************************
-;**           Ansteuerung der c't-Solid-State-Disk                    **
+;**           Controlling the c't-Solid-State-Disk                    **
 ;***********************************************************************
 
 	if	ctsolid
 
-; Definition der Adressen
+; Address definitions
 
-ctsBase	equ	54h		; Basisadresse
-ctsSec	equ	ctsBase		; Sektorregister Solid-State-Floppy
-ctsRdD	equ	ctsBase		; Lese-Datenregister Solid-State-Floppy
-ctsTrk	equ	ctsBase+1	; Spurregister Solid-State-Floppy
-ctsSta	equ	ctsBase+1	; Statusregister Solid-State-Floppy
-ctsWrD	equ	ctsBase+2	; Schreib-Datenregister Solid-State-Floppy
+ctsBase	equ	54h		; Base address
+ctsSec	equ	ctsBase		; Sector register Solid-State-Floppy
+ctsRdD	equ	ctsBase		; Read Data register Solid-State-Floppy
+ctsTrk	equ	ctsBase+1	; Track register Solid-State-Floppy
+ctsSta	equ	ctsBase+1	; Status register Solid-State-Floppy
+ctsWrD	equ	ctsBase+2	; Write Data register Solid-State-Floppy
 
-; Initialisierung: Feststellen der RAM-Gr|~e (Jumper) und dimensionieren
-; der Kapazit{t. Danach Meldung wegen Kapazit{t. Bei Fehler Drive-Table-
-; Eintrag l|schen und entsprechend melden.
-; Ein Umbau auf 768k (3 Banks je 256k) wird als Option unterst}tzt. Dazu
-; m}ssen beide Kapazit{ts-Jumper offengelassen werden.
+; Initialisation: Determin the RAM size (Jumper) and capacity.
+; Output a message if configured. If no device found or an error
+; occurs, delete the drive entry and report accordingly.
+; A conversion to 768k (3 Banks each 256k) is supported as an option.
+; In this case, both capacity jumpers must be left open.
 
 ctsIni:	iopage	BusP
-	in	a,(ctsSta)	; Solid-State-Disk G: auf Existenz pr}fen
-	inc	a		; 0/1/2/3  -->  1/2/3/0 in unteren Bits
-	jr	z,KillG		; wenn nicht da: l|schen
-	and	3		; Gr|~enerkennungs-Bits +1 (64k,128k,256k)
+	in	a,(ctsSta)	; Solid-State-Disk G: check for existence
+	inc	a		; 0/1/2/3  -->  1/2/3/0 in lower Bits
+	jr	z,KillG		; If not there (read FFh): delete
+	and	3		; Size detection Bits +1 (64k,128k,256k)
     if spezial
-	jr	z,cts768	; beide Original-Bits 1: Spezial-Umbau 768k
+	jr	z,cts768	; both original Bits 1: Special conversion 768k
     else
-	jr	z,KillG		; beide Original-Bits 1 unzul{ssig
+	jr	z,KillG		; both original-Bits 1 not supported: delete
     endif
 	cp	3
 	sbc	a,-1		; --> 1,2,4
 	multu	a,64		; --> 64,128,256
     if loader
 	dec	hl
-	ld	(DPBG+5),hl	; DSM in DPB einsetzen
+	ld	(DPBG+5),hl	; set DSM into DPB
 	ret
     else
-	push	hl		; Kapazit{t in KB auf Stack
+	push	hl		; save capacity in KB on Stack
 	dec	hl
-	ld	(DPBG+5),hl	; DSM in DPB einsetzen
+	ld	(DPBG+5),hl	; use DSM in DPB
 	ld	hl,ctsSgn
-	jp	PrtSiz		; Meldung und Kapazit{t ausgeben
+	jp	PrtSiz		; Output message and capacity
     endif
 
     if spezial
-cts768:	ldw	(DPBG+2),0F04h	; BSH und BLM: 2k-Blocks
-	ldw	(DPBG+5),383	; 768k sind 384 Blocks
-	ld	(DPBG+7),127	; jetzt 128 DIR-Eintr{ge (ebenfalls 2 Blocks)
+cts768:	ldw	(DPBG+2),0F04h	; BSH and BLM: 2k-Blocks
+	ldw	(DPBG+5),383	; 768k are 384 Blocks
+	ld	(DPBG+7),127	; now 128 DIR entries (also 2 Blocks)
       if loader
 	ret
       else
 	push	768
 	ld	hl,ctsSgn
-	jp	PrtSiz		; Meldung und Kapazit{t ausgeben
+	jp	PrtSiz		; Output message and capacity
       endif
     endif
 
 KillG:	ld	hl,0
-	ld	(DTbl+12),hl	; Eintrag von DPHG l|schen
+	ld	(DTbl+12),hl	; Disable entry in DPHG
     if loader
 	ret
     else
 	ld	hl,ctsBad
-	jp	PMsg		; Fehlermeldung und Ende
+	jp	PMsg		; Error message and end
     endif
 
-; Lesen von Solid-State-Floppy immer m|glich (RAM oder EPROM).
+; Reading of Solid-State-Floppy always possible (RAM or EPROM).
 
-ctsRd:	iopage	busp		; externe Karten am ECB-Bus
+ctsRd:	iopage	busp		; external cards on ECB-Bus
 	ld	a,(Track)
-	out	(ctsTrk),a	; Spurregister setzen
+	out	(ctsTrk),a	; set track register
 	ld	a,(Sector)
-	out	(ctsSec),a	; Sektorregister setzen
+	out	(ctsSec),a	; set sector register
 	ld	hl,ctsRdD
-	ld	(Source),hl	; EPROM-Floppy-Datenport als Quelle
+	ld	(Source),hl	; EPROM-Floppy-Data port as source
 
 	endif			; (ctsolid)
 
-	if	ctram or ctsolid ; gemeinsame Routine
+	if	ctram or ctsolid ; common Routine
 
 ctRd:	xor	a
-	ld	(Source+2),a	; I/O-Page 00 f}r ECB-Bus
-	call	ClcDMA		; Phys. Zieladresse berechnen
+	ld	(Source+2),a	; I/O-Page 00 for ECB-Bus
+	call	ClcDMA		; Phys. calculate destination address
 	ld	(Dest),hl
-	ld	(Dest+2),a	; in DMA-Tabelle einsetzen
+	ld	(Dest+2),a	; insert into DMA Table
 	ld	hl,1110000100000000b ; Descriptor: I/O --> MEM, Bytes Cont.
-	jp	XDrSet		; DMA setzen/Enable, RETURN
+	jp	XDrSet		; set DMA/Enable, RETURN
 
-	endif			; (gemeinsame Routine)
+	endif			; (common Routine)
 
 	if ctsolid and not loader
 
-; Schreiben auf Solid-State-Floppy nur m|glich bei RAM-Best}ckung
+; Writing to Solid-State-Floppy only possible with RAM
 
-ctsWr:	iopage	busp		; externe Karten am ECB-Bus
-	in	a,(ctsSta)	; Statusport lesen
-	rrca			; ein Bit rechts schieben
+ctsWr:	iopage	busp		; external cards on ECB-Bus
+	in	a,(ctsSta)	; read status port
+	rrca			; push bit to the right
 	and	2
-	ret	nz		; EPROM-Best}ckung : WRPROT
+	ret	nz		; EPROM equipment: WRPROT
 	ld	a,(Track)
-	out	(ctsTrk),a	; Spurregister setzen
+	out	(ctsTrk),a	; set track register
 	ld	a,(Sector)
-	out	(ctsSec),a	; Sektorregister setzen
+	out	(ctsSec),a	; set sector register
 	ld	hl,ctsWrD
-	ld	(Dest),hl	; RAM-Floppy-Datenport als Quelle
+	ld	(Dest),hl	; RAM-Floppy-Data port as source
 
 	endif			; (ctsolid)
 
-	if	ctram or ctsolid ; gemeinsame Routine
+	if	ctram or ctsolid ; Common Routine
 
 ctWr:	xor	a
-	ld	(Dest+2),a	; I/O-Page 00 f}r ECB-Bus
-	call	ClcDMA		; Phys. Quelladresse berechnen
+	ld	(Dest+2),a	; I/O-Page 00 for ECB-Bus
+	call	ClcDMA		; Phys. Calculate source address
 	ld	(Source),hl
-	ld	(Source+2),a	; in DMA-Tabelle einsetzen
+	ld	(Source+2),a	; insert it into DMA Table
 	ld	hl,1000000100001100b ; Descriptor: MEM --> I/O, Bytes Cont.
-	jp	XDrSet		; DMA setzen/Enable, RETURN
+	jp	XDrSet		; set DMA /Enable, RETURN
 
-	endif			; (gemeinsame Routine)
+	endif			; (Common Routine)
 
 	if	ctsolid
 
@@ -430,18 +438,18 @@ ctsBad:	defz	'Error: Solid-State-Disk not installed',cr,lf
     endif
   endif
 
-; Extended Disk Parameter Header & Allocation Vektoren:
+; Extended Disk Parameter Header & Allocation Vectors:
 
 DPHG::	defw	0,0,0,0,0,0
 	defw	DPBG,0
     if loader
 	defw	0,BCB,-1,-1
 	defb	0
-	defw	ctsIni,0,ctsRd,0 ; Treiber-Einspr}nge
+	defw	ctsIni,0,ctsRd,0 ; Driver entry points
     else
 	defw	ALVG,-2,-1,-2
 	defb	0
-	defw	ctsIni,0,ctsRd,ctsWr ; Treiber-Einspr}nge
+	defw	ctsIni,0,ctsRd,ctsWr ; Driver entry points
     endif
 
     if spezial
@@ -453,10 +461,10 @@ GBlks	equ	256
 ALVG:	defs	(GBlks+7)/4	; Allocation Vector (2 Bit)
     endif
 
-; DPBG ausgelegt f}r 256k EPROM/SRAM-Best}ckung.
-; (wird f}r Spezial-Umbau 768k bei Installation gepatcht)
+; DPBG is designed for 256k EPROM/SRAM assembly.
+; (patched for special 768k conversion at installation)
 
-	cseg			; DPB mu~ resident sein
+	cseg			; DPB must be resident
 
 DPBG:	defw	256		; 128 byte sec/trk
 	defb	3,7		; block shift, mask (1k)
@@ -473,96 +481,95 @@ DPBG:	defw	256		; 128 byte sec/trk
 	endif			; (ctsolid)
 
 ;***********************************************************************
-;**          Initialisierung der RAM-Floppies (nur im Lader)          **
+;**          Initialisation of RAM Floppies (only in the loader)      **
 ;***********************************************************************
 
-; Allgemeine Initialisierungs-Routine f}r RAM-Disks. Zun{chst wird der
-; erste Sektor gelesen und der erste Eintrag darin auf das Directory
-; Label untersucht. Bei einem fehlerfreien Label passiert nichts. Sind
-; wenige Fehler vorhanden, wird nach R}ckfrage die Directory gel|scht.
-; Bei vielen Fehlern wird ohne R}ckfrage gel|scht.
-; Es wird davon ausgegangen, da~ die gesamte Directory in einer Spur des
-; logischen Laufwerks liegt (256 Sektoren = 1024 Eintr{ge).
-; Die Adressen DrvRd, DrvWr, DrvLbl und DrvQry m}ssen bereits gesetzt sein.
+; General initialisation routine for RAM Disks. First the first sector
+; in it and the first diectory entry (drive label) is examined. If
+; the label if intact nothing is done.  If not found, query user about
+; re-initialising the directory. It is assumed all the directory is on
+; a single track on the logical drive (256 sectors = 1024 entries).
+; The addresses DrvRd, DrvWr, DrvLbl und DrvQry must already be set in
+; the extended parameter block.
 
-	if	loader		; wird nur im Lader gebraucht
+	if	loader		; only needed in the loader
 
 DirIni:	ld	hl,0
 	ld	(Track),hl
-	ld	(Sector),hl	; Spur und Sektor 0
-	ldw	(DMA),Buffer	; Zieladresse: Scratch-Buffer
+	ld	(Sector),hl	; Track and Sector 0
+	ldw	(DMA),Buffer	; Destination address: Scratch-Buffer
 	ld	hl,(DrvRd)
-	call	(hl)		; ersten Sektor lesen
+	call	(hl)		; read first sector
 	ld	hl,(DrvLbl)
 	ld	de,Buffer
-	call	ChkLbl		; Directory Label pr}fen
-	ret	z		; Label unver{ndert: nicht l|schen --> Ende
+	call	ChkLbl		; Check Directory Label
+	ret	z		; Label unchanged: do not erase --> End
 	ld	hl,(DrvQry)
-	call	nc,Query	; wenige Fehler: Frage ob l|schen
-	ret	nc		; nicht l|schen: Ende Initialisierung
+	call	nc,Query	; a few mistakes: Prompt to erase
+	ret	nc		; do not erase: End
 DirIni1:ld	hl,Buffer
 	ld	de,Buffer+1
 	ld	bc,7Fh
 	ld	(hl),0E5h
-	ldir			; einen Sektor mit E5 f}llen
-	ld	(Buffer+60h),21h ; 1x SFCB vorbereiten
-	ld	b,0		; Z{hler f}r 256 Sektoren (ergibt 1024 Eintr.)
+	ldir			; fill sector with E5h
+	ld	(Buffer+60h),21h ; Prepare 1x SFCB
+	ld	b,0		; Counter for 256 Sectors (1024 entries)
 DirIni2:push	bc
 	ld	a,b
-	dec	a		; Sektornummer 255..0
+	dec	a		; Sector number 255..0
 	jr	nz,DirIni3
-	ld	hl,(DrvLbl)	; in Sektor 0 Directory Label einsetzen
+	ld	hl,(DrvLbl)	; in sector 0 Directory Label
 	ld	de,Buffer
 	ld	bc,20h
-	ldir			; Directory Label nach Buffer kopieren
+	ldir			; Copy Directory Label to Buffer
 DirIni3:ld	(Sector),a
 	ld	hl,(DrvWr)
-	call	(hl)		; Sektor schreiben (Adressen noch g}ltig)
-	pop	bc		; Z{hler
+	call	(hl)		; Write Sector (addresses still valid)
+	pop	bc		; counter
 	cp	a,2
-	ret	z		; Write-Protected: Abbruch!
-	djnz	DirIni2		; bis gesamte Directory initialisiert
-	ret			; danach fertig!
+	ret	z		; Write-Protected: Cancel!
+	djnz	DirIni2		; Erase entire directory
+	ret			; then done!
 
-; Pr}fen des Directory Label ab (HL) auf ]bereinstimmung mit (DE).
-; Bei Gleichheit Z, bei bis zu 5 Fehlern NC, bei mehr Fehlern C.
+; Check the Directory Label from (HL) for compliance with (DE).
+; Exact match Z, up to 5 errors NC, with more errors C.
 
-ChkLbl:	ld	bc,2005h	; L{nge des Labels, Fehlerz{hler
+ChkLbl:	ld	bc,2005h	; Length of Label entry (B), error counter (C)
 ChkLbl1:ld	a,(de)
-	cp	(hl)		; Bytes vergleichen
+	cp	(hl)		; compare bytes
 	jr	z,ChkLbl2
-	dec	c		; verschieden: Z{hler -1
+	dec	c		; different: counter -1
 ChkLbl2:inc	hl
-	inc	de		; Zeiger +1
-	djnz	ChkLbl1		; gesamtes Label pr}fen
+	inc	de		; Pointer +1
+	djnz	ChkLbl1		; check entire volume label
 	ld	a,c
 	cp	5
-	ret	z		; C unver{ndert: fehlerfrei, also Z
+	ret	z		; C unchanged: exact match, so Z
 	rlca
-	ret			; bei }ber 5 Fehlern CY gesetzt, NZ
+	ret			; set at more than 5 errors CY, NZ
 
-; Ausgeben der Frage ab (HL) und Warten auf Antwort (J/N/Y).
-; Bei Antwort 'N' CY=0, sonst CY=1.
+; Prompt to erase question (HL) and wait for response (J/N/Y).
+; For answer 'N' CY=0, otherwise CY=1.
 
-Query:	call	PMsg		; Frage ausgeben
-Query1:	call	ConIn		; Zeicheneingabe abwarten
+Query:	call	PMsg		; Output question
+Query1:	call	ConIn		; Wait for character input
 	and	5Fh		; CAPS
 	cp	YesChar
 	scf
 	jr	z,Query2
 	cp	NoChar
-	jr	nz,Query1	; andere Eingaben ignorieren
-Query2:	push	af		; CY retten
-	call	COA		; Zeichen Echo
+	jr	nz,Query1	; Ignore other responses
+Query2:	push	af		; save CY
+	call	COA		; Echo character
 	pop	af
 	ret
 
-; Variablen nur bei Initialisierung (Lader):
+; Variables only used for initialisation (Loader):
 
-DrvRd:	defw	MDrRd		; Treiber-Einsprung Read
-DrvWr:	defw	MDrWr		; Treiber-Einsprung Write
-DrvLbl:	defw	MDrLbl		; Adresse des korrekten Labels
-DrvQry:	defw	MDrQry		; Adresse der R}ckfrage
+DrvRd:	defw	MDrRd		; Driver entry for Read
+DrvWr:	defw	MDrWr		; Driver entry for Write
+DrvLbl:	defw	MDrLbl		; Address of correct volume label
+DrvQry:	defw	MDrQry		; Address of the enquiry
 
 	endif			; (loader)
 

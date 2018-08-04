@@ -8,120 +8,126 @@
 
 ; 930327 Tilmann Reh
 
-; Das gesamte CLOCK-Modul liegt im gebankten Bereich und darf nur }ber
-; System Call aufgerufen werden (es sei denn, die CPU befindet sich
-; bereits im System Mode).
+; 10-July-2018 Tony Nicholson
+; Comments translated from German to English (using Google
+; Translate with some appropriate language adjustments resulting
+; from an examination of the instruction sequences).  Also
+; corrected the syntax to be compatible with Hector Peraza's
+; ZSM4 Z80/Z180/Z280 assembler 
+
+; The entire CLOCK Module is in the banked area and may only be accessed
+; via a System Call (unless the CPU is already in System Mode)
 
 	dseg
 
 time::	push	hl
-	push	de		; Register retten
+	push	de		; Save Registers
 	push	bc
 	iopage	boardp
 	pop	bc
 	in	a,(rtc+11)
 	set	7,a
-	out	(rtc+11),a	; 'SET' Bit setzen: keine Updates mehr
+	out	(rtc+11),a	; 'SET' Bit: stop the clock from updating
 	inc	c
-	jr	z,settime	; C=FF : Uhr stellen
+	jr	z,settime	; C=FF : Set clock
 
-	in	a,(rtc+9)	; Jahr aus Uhr (BCD)
-	ld	hl,0		; Tagesanzahl mit 0 vorbelegen
-	ld	de,365		; normalerweise 365 Tage addieren (pro Jahr)
-	ld	b,00100010b	; Bitmaske f}r Carry bei Schaltjahr
+	in	a,(rtc+9)	; Fetch the YEAR (BCD)
+	ld	hl,0		; Convert to days
+	ld	de,365		; usually add 365 days (per year)
+	ld	b,00100010b	; Bit mask for Carry in leap year
 	sub	78h
-cloop:	daa			; Anzahl der Jahre seit 1978
+cloop:	daa			; Calculate number of years since 1978
 	jr	z,exyear
 	rlc	b
-	adc	hl,de		; 365 / 366 Tage addieren
+	adc	hl,de		; add 365 / 366 days
 	dec	a
-	jr	cloop		; Jahreszahl BCD dekrementieren bis 0 erreicht
-exyear:	in	a,(rtc+8)	; Monat aus Uhr lesen (BCD)
-	bit	7,b		; aktuelles Jahr Schaltjahr ?
+	jr	cloop		; Decrement the year BCD to 0
+exyear:	in	a,(rtc+8)	; Read MONTH from clock (BCD)
+	bit	7,b		; Is the current year a leap year?
 	ld	de,dnosw
 	jr	z,nswitch
-	ld	de,dsw		; DE mit Zeiger auf entspr. Tabelle laden
-nswitch: ld	b,0		; High-Byte f}r Addition immer 0
+	ld	de,dsw		; Load DE with pointer to days of month
+nswitch: ld	b,0		; High-Byte for addition always 0
 mloop:	ex	de,hl
-	ld	c,(hl)		; Tageszahl des entspr. Monats lesen
+	ld	c,(hl)		; Read days for the month
 	inc	hl
 	ex	de,hl
-	add	hl,bc		; und zu Gesamtzahl addieren
+	add	hl,bc		; and add up the total number
 	dec	a
-	daa			; Monat BCD dekrementieren
-	jr	nz,mloop	; bis Monat erreicht
-	sbc	hl,bc		; aktueller Monat zuviel addiert !
-	in	a,(rtc+7)	; Tag aus Uhr lesen (BCD)
-	ld	d,a		; BCD nach D (16*Z + 1*E)
+	daa			; decrement the month (BCD)
+	jr	nz,mloop	; loop until this MONTH is reached
+	sbc	hl,bc		; too much added this month!
+	in	a,(rtc+7)	; Read DAY from clock (BCD)
+	ld	d,a		; BCD to D (16*Z + 1*E)
 	and	0Fh
-	ld	e,a		; Einer nach E
+	ld	e,a		; units digit to E
 	ld	a,d
-	sub	e		; Zehner in A (16*Z)
+	sub	e		; Tens digit to A (16*Z)
 	rrca
-	rrca			; Zehner in A (4*Z)
+	rrca			; Tens in A (4*Z)
 	add	a,d		; -> 20*Z + 1*E
 	add	a,e		; -> 20*Z + 2*E
-	rra			; Bin{rer Wert in A (10*Z + 1*E)
-	add	hl,a		; Tage addieren
-	ld	(@date),hl	; in SCB eintragen
-	in	a,(rtc+4)	; Stunden (BCD)
+	rra			; Binary days in A (10*Z + 1*E)
+	add	hl,a		; Add days
+	ld	(@date),hl	; save into SCB
+	in	a,(rtc+4)	; Hours (BCD)
 	ld	(@hour),a	; -> SCB
-	in	a,(rtc+2)	; Minuten (BCD)
+	in	a,(rtc+2)	; Minutes (BCD)
 	ld	(@min),a	; -> SCB
-	in	a,(rtc+0)	; Sekunden (BCD)
+	in	a,(rtc+0)	; Seconds (BCD)
 	ld	(@sec),a	; -> SCB
 clkret:	in	a,(rtc+11)
 	res	7,a
-	out	(rtc+11),a	; 'SET' Bit r}cksetzen: wieder Updates
+	out	(rtc+11),a	; 'SET' Allow clock to update again
 	pop	de
 	pop	hl
 	ret
 
-; Stellen der Uhr: Ausrechnen der BCD-Werte aus den gelieferten bin{ren
-; Daten (vor allem Datum in Tagesanzahl).
+; Setting the clock: Calculate the BCD values from the supplied binary time
+; data (especially the number of days).
 
-settime:ld	hl,(@Date)	; Division Tageszahl durch 7 --> Wochentag
+settime:ld	hl,(@Date)	; Divide day number by 7 --> Weekday
 	ld	de,0
-	divw	dehl,7		; Ergebnis: Rest 0 = Sonntag .. 6 = Samstag
+	divw	dehl,7		; Result: 0 = Sunday .. 6 = Saturday
 	ld	a,e
-	inc	a		; RTC l{uft von 1..7 (Sonntag..Samstag)
-	out	(RTC+6),a	; Wochentag stellen (f}r DSE-Umschaltung)
+	inc	a		; RTC chip uses days 1..7 (Sunday..Saturday)
+	out	(RTC+6),a	; Set DAYOFWEEK (for DSE switching)
 	ld	hl,(@date)
 	ld	de,365
-	ld	b,00100010b	; Bitmaske erzeugt CARRY bei Schaltjahr
-	ld	a,78h		; Anzahl Tage ab 1978
+	ld	b,00100010b	; Bit mask generates CARRY if leap year
+	ld	a,78h		; Number of days since 1978
 cyloop:	rlc	b
-	sbc	hl,de		; 365 bzw. 366 abziehen
+	sbc	hl,de		; subract 365 or 366
 	jr	c,cyexit
-	jr	z,cyexit	; bis negativ oder null
+	jr	z,cyexit	; until we get to negative or zero
 	inc	a
-	daa			; Jahr BCD inkrementieren
+	daa			; Increment YEAR (BCD)
 	jr	cyloop
 cyexit:	rrc	b
-	adc	hl,de		; Tageszahl korrigieren
-	out	(rtc+9),a	; Jahr in Uhr schreiben
-	bit	7,b		; in B noch Schaltjahr-Maske
+	adc	hl,de		; Correct the days
+	out	(rtc+9),a	; Write the YEAR to the clock chip
+	bit	7,b		; in B is the leap year mask
 	ld	de,dnosw
 	jr	z,nosw
-	ld	de,dsw		; DE mit Zeiger auf entspr. Tabelle laden
+	ld	de,dsw		; DE points to days in month table
 nosw:	ld	a,1
-	ld	b,0		; High-Byte f}r Subtraktion immer 0
+	ld	b,0		; High byte for subtraction always 0
 cmloop:	ex	de,hl
-	ld	c,(hl)		; Tageszahl des entspr. Monats lesen
+	ld	c,(hl)		; Read he days in month
 	inc	hl
 	ex	de,hl
 	or	a
-	sbc	hl,bc		; und von Gesamtzahl abziehen
+	sbc	hl,bc		; and subtract from the total
 	jr	c,cmexit
-	jr	z,cmexit	; bis 0 oder negativ
+	jr	z,cmexit	; until it becomes zero or negative
 	inc	a
-	daa			; Monat BCD inkrementieren
+	daa			; increment MONTH in BCD
 	jr	cmloop
-cmexit:	add	hl,bc		; Korrekturaddition
-	out	(rtc+8),a	; Monate in Uhr schreiben
+cmexit:	add	hl,bc		; Correct
+	out	(rtc+8),a	; Write MONTH to the clock chip
 
-calcd:	ld	a,l		; Rest Tage noch bin{r
-	cp	10
+calcd:	ld	a,l		; Remaining is DAY
+	cp	10		; convert to BCD
 	jr	c,cd1
 	add	a,6
 	cp	26
@@ -130,14 +136,14 @@ calcd:	ld	a,l		; Rest Tage noch bin{r
 	cp	42
 	jr	c,cd1
 	add	a,6
-cd1:	out	(rtc+7),a	; Tage in Uhr schreiben
+cd1:	out	(rtc+7),a	; Write DAY to clock chip
 	ld	a,(@hour)
-	out	(rtc+4),a	; Stunden -> Uhr
+	out	(rtc+4),a	; HOURS -> Clock
 	ld	a,(@min)
-	out	(rtc+2),a	; Minuten -> Uhr
+	out	(rtc+2),a	; MINUTES -> Clock
 	ld	a,(@sec)
-	out	(rtc+0),a	; Sekunden -> Uhr
-	in	a,(rtc)		; wg. Chipfehler
+	out	(rtc+0),a	; SECONDS -> Clock
+	in	a,(rtc)		; set time on clock chip
 	jp	clkret
 
 dnosw:	defb	31,28,31,30,31,30,31,31,30,31,30,31

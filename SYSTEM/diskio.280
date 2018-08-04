@@ -9,566 +9,569 @@
 ; 950214 Tilmann Reh
 ; 170308 Wayne Warthen
 
-LogTry	equ	3	; 1..255, Anzahl Versuche bei AutoFormat-Read
-RdTry	equ	3	; 1..255, Anzahl Versuche bei Disk-Read
-WrTry	equ	3	; 1..255, Anzahl Versuche bei Disk-Write
-VerTry	equ	1	; 0..255, Anzahl Versuche bei Disk-Verify
-AllTry	equ	3	; 1..255, Anzahl Gesamt-Versuche Disk-Write/Verify
+; 10-July-2018 Tony Nicholson
+; Comments translated from German to English (using Google
+; Translate with some appropriate language adjustments resulting
+; from an examination of the instruction sequences).  Also
+; corrected the syntax to be compatible with Hector Peraza's
+; ZSM4 Z80/Z180/Z280 assembler 
 
-; Diese Variablen sollen sp{ter einmal im Bootlader-Setup einstellbar sein.
-; Deswegen keine bedingte Assemblierung bei VerTry=0.
+LogTry	equ	3	; 1..255, Number of attempts at AutoFormat-Read
+RdTry	equ	3	; 1..255, Number of attempts at Disk-Read
+WrTry	equ	3	; 1..255, Number of attempts at Disk-Write
+VerTry	equ	1	; 0..255, Number of attempts at Disk-Verify
+AllTry	equ	3	; 1..255, Total number of attempts Disk-Write/Verify
 
-	dseg			; Disk-I/O Routinen vollst{ndig in Bank 0
+; These variables should later be adjusted in the Bootloader-Setup.
+; When VerTry=0, there is no conditional assembly.
+
+	dseg			; Disk-I/O Routines are wholly in Bank 0
 
 ;***********************************************************************
-;**           Disk-I/O Ansteuerungsroutinen f}r BDOS                  **
+;**           Disk-I/O Control Routines for the BDOS                  **
 ;***********************************************************************
 
-; Initialisierung des Floppy-Treibers. Nur die evtl. nicht vorhandenen
-; Laufwerke aus Drive Table l|schen. Gemeinsame Routine f}r alle 4 Drives.
-; Keine Meldung, da Floppies Grundausstattung und Detail-Text zu lang.
+; Initialisation of the Floppy driver. Non-existing drives are removed
+; from the Drive Table. All 4 drives are handled by this one routine.
+; No messages are output in order to reduce verbosity.
 
     if not loader
 
-DskIni:	iopage	BoardP		; f}r Zugriff auf NVRAM
-	ld	bc,400h+s$Drv0	; Z{hler, NVRAM-Adresse
-	ld	hl,DTbl		; Zeiger auf Drive Table (Laufwerk A:)
+DskIni:	iopage	BoardP		; for accessing the NVRAM
+	ld	bc,400h+s$Drv0	; Point to the drive entries in NVRAM
+	ld	hl,DTbl		; Start with the Drive Table (for A:)
 DskIn1:	in	a,(c)
 	and	7
-	jr	nz,DskIn2	; Drive Typ <> 0 : Laufwerk vorhanden
-	ldw	(hl),0		; Typ = 0 : DTbl-Eintrag l|schen
+	jr	nz,DskIn2	; Drive Typ <> 0 : drive available
+	ldw	(hl),0		; Typ = 0 : remove drive table entry
 DskIn2:	inc	hl
-	inc	hl		; n{chster Eintrag
-	inc	c		; n{chstes Laufwerk
-	djnz	DskIn1		; bis alle 4 Laufwerke gepr}ft
+	inc	hl		; next table entry
+	inc	c		; next drive
+	djnz	DskIn1		; check each of the 4 drives
 	ret
 
     endif
 
-; Floppy-Laufwerk anw{hlen f}r alle weiteren Zugriffe. Hierbei werden
-; alle globalen Zeiger und Variablen so gesetzt, da~ bei anschlie~endem
-; R/W m|glichst wenig zu tun ist. Bei 'Initial Select' wird AutoFormat
-; durchgef}hrt. Drive mu~ bei Aufruf noch in C (Bereich 0..3) und
-; Cold-Select-Flag noch in E sein!
+; Select floppy drive for all further accesses. Here are all global
+; pointers and variables that are set in such a way to facilitate easy
+; R/W access. On 'Initial Select' and AutoFormat detection is performed.
+; The drive to select is passed in the C register (0..3) and the cold
+; select hint flag is in E.
 
     if not loader
-MskTbl:	defb	1,2,4,8		; Bitmasken f}r Floppy-Login-Vektoren
+MskTbl:	defb	1,2,4,8		; Bit masks for Floppy Login Vector
     endif
 
-DskSel:	ld	a,c		; Drive (0..3) nach A
-	ld	(PDrive),a	; Laufwerk nach PDrive: f}r FDC
-	iopage	BoardP		; f}r NVRAM-Zugriff
+DskSel:	ld	a,c		; Drive (0..3) to A
+	ld	(PDrive),a	; Save drive to PDrive: for FDC
+	iopage	BoardP		; for NVRAM access
     if loader
 	add	a,s$Drv0
-	ld	c,a		; Drive-Typ-Adresse (NVRAM) in C
+	ld	c,a		; Drive type address (NVRAM) in C
     else
-	push	ResIOP		; nach R}ckkehr auf Bus-I/O-Page
-	exts	a		; PDrive nach HL
+	push	ResIOP		; after returning to Bus-I/O-Page
+	exts	a		; PDrive to HL
 	add	a,s$Drv0
-	ld	c,a		; Drive-Typ-Adresse (NVRAM) in C
-	ld	a,(hl+MskTbl)	; Bitmaske aus Tabelle holen
-	ld	(CurMsk),a	; PDrive als Bitmaske
+	ld	c,a		; Drive Type Address (NVRAM) in C
+	ld	a,(hl+MskTbl)	; Get the bit mask from table
+	ld	(CurMsk),a	; save to current mask
     endif
-	in	a,(c)		; Laufwerkstyp aus Setup-RAM
-	ld	(DrvTyp),a	; als aktuellen Laufwerkstyp speichern
-	and	7		; untere 3 Bit : Typ-Code ( <> 0 )
-	multu	a,3		; 3 Byte pro Specify-Befehl
-	lda	hl,(hl+Steps-6) ; Zeiger auf 'Specify' (Typen 2..7)
+	in	a,(c)		; Get drive type from Setup-RAM
+	ld	(DrvTyp),a	; and save as the current drive type
+	and	7		; lower 3 bits: Typ-Code ( <> 0 )
+	multu	a,3		; 3 bytes per Specify command
+	lda	hl,(hl+Steps-6) ; Point to 'Specify' (Types 2..7)
 	ld	b,3
-	call	FdcCo1		; SPECIFY ausgeben (FDC-Zeiten)
-	push	ix		; f}r ZPM3
-	call	SetLen		; Sektorl{ngen von FDC und DMA setzen
+	call	FdcCo1		; Issue SPECIFY command (FDC Times)
+	push	ix		; save IX (used by ZPM3)
+	call	SetLen		; Set Sector length of FDC and DMA
 	pop	ix
-    if not loader		; Loader: nur ein Aufruf, immer AutoFormat
+    if not loader		; Loader: only one call, always AutoFormat
 	bit	0,e
-	jr	z,AutoFm	; Erstselektion (Flag E=0)
+	jr	z,AutoFm	; First select? (Flag E=0)
 	ld	a,(CurMsk)
 	ld	hl,ResMsk
 	and	(hl)
-	call	z,DskHom	; falls FDC-Reset: Recalibrate durchf}hren
-	ld	hl,(CurDPH)	; R}ckkehr mit DPH in HL
+	call	z,DskHom	; if FDC Reset: perform drive recalibrate
+	ld	hl,(CurDPH)	; Return with DPH in HL
 	ret
 
-; Ab hier Ausf}hrung nur nach Diskettenwechsel (Neu-Einloggen, AutoFormat):
+; Disk change (detect drive AutoFormat)
 
-AutoTim:call	MotOff		; Time-Out/Abbruch bei AutoFormat: Motor aus
+AutoTim:call	MotOff		; Time-Out/Cancel AutoFormat: Motor off
 	ld	hl,0
-	ret			; Ende mit HL=0 (Illegal Drive)
+	ret			; End with HL=0 (Illegal Drive)
     endif
 
 AutoFm:
     if not loader
-	ld	(DFunc),'L'	; Fehlermeldung 'LOGIN' vorbereiten
+	ld	(DFunc),'L'	; Prepare the 'LOGIN' error message
     endif
-	call	DskHom		; Motor an, auf Spur 0 fahren
-	ldw	(Retry),ChkRtry	; Wiederholungs-Einsprung setzen
-ChkRtry:call	ChkDen		; Density testen
-	call	c,TimErr	; Time-Out: Fehler/Retry
+	call	DskHom		; Motor on, seek to track 0
+	ldw	(Retry),ChkRtry	; Initialise retry count
+ChkRtry:call	ChkDen		; Density test
+	call	c,TimErr	; Time-Out: Error/Retry
     if loader
 	ld	hl,0
-	ret	c		; Time-Out: Abbruch
+	ret	c		; Time-Out: Abort
     else
-	jr	c,AutoTim	; nach Time-Out: Abbruch (Illegal Drive)
+	jr	c,AutoTim	; after Time-Out: Abort (Illegal Drive)
     endif
-	jp	nz,SelDsX	; Fehler bei ID-Read: kein AutoFormat
+	jp	nz,SelDsX	; Error doing ID-Read: no AutoFormat
     if not loader
-	ld	(DFunc),'P'	; Kennung f}r Fehlermeldung 'Params'
+	ld	(DFunc),'P'	; Change error message for 'Params'
     endif
 	ld	a,(Dense)
 	or	6		; FDC 'READ DATA'
 	ld	(CList),a
 	xor	a
-	ld	(PTrack),a	; Spur 0
+	ld	(PTrack),a	; Track 0
     if not loader
-	ld	(DBnk),a	; Auto-Format-Puffer in Bank 0
+	ld	(DBnk),a	; Auto Format buffer in Bank 0
     endif
 	inc	a
-	ld	(Psect),a	; T0 S1 auf Seite 0 lesen
+	ld	(Psect),a	; Read Track 0 Sector 1 to page 0
 	ld	(EOT),a
-	ld	a,(Result+4)	; Kopfnummer aus ID-Feld
+	ld	a,(Result+4)	; Examine head number from ID Field
 	ld	(Head),a
-	ld	a,(Result+6)	; N aus ID-Feld (Sektorl{nge)
+	ld	a,(Result+6)	; N from ID Field (Sector length)
 	ld	(FdcN),a
-	ldw	(DMA),Buffer	; neue log. Zieladresse abspeichern
-	ldw	(RdLen),128	; Generell nur 128 Byte lesen
+	ldw	(DMA),Buffer	; new log. Set transfer address
+	ldw	(RdLen),128	; Generally only 128 byte read
 
-	ldw	(Retry),RdParm	; Adresse f}r Wiederhol-Versuche setzen
-RdParm:	ld	bc,900h+LogTry	; Anzahl Leseversuche in C, FDC-Befehl 9 Bytes
+	ldw	(Retry),RdParm	; Address for retry attempts
+RdParm:	ld	bc,900h+LogTry	; Number of attempts in C, FDC command 9 Bytes
 ParmLp:	push	bc
 	ld	de,RdDmaPB
-	call	DskIO		; Sektor lesen
+	call	DskIO		; Sector read
 	pop	bc
-	call	c,TimErr	; bei Time-Out: fragen was tun
-	jp	c,DskErr	; Fehlerabbruch: Ende mit Fehlermeldung
+	call	c,TimErr	; at Time-Out: ask what to do
+	jp	c,DskErr	; Error aborted: Exit with error message
 	call	ErChkP
-	jr	z,ActDPB	; kein Fehler: Sektor auswerten
+	jr	z,ActDPB	; no error: Examine sector
 	ld	a,(Result+1)
-	bit	2,a		; Sektor 1 }berhaupt gefunden ?
-	jp	nz,SelDsX	; nein: ohne S1 kein AutoFormat...
+	bit	2,a		; Sector 1 found?
+	jp	nz,SelDsX	; no: cannot do AutoFormat...
 	dec	c
-	jr	nz,ParmLp	; bei Fehler : mehrmals versuchen
-	jp	SelDsX		; danach mit urspr}nglichen Werten arbeiten
+	jr	nz,ParmLp	; retry in case of error
+	jp	SelDsX		; failed - select disk with previous format
 
-; Pr}fen, ob gelesener Sektor tats{chlich g}ltigen Parameterblock enth{lt
+; Check if the AutoFormat sector contains a valid disk parameter block
 
-ActDPB::push	ix		; IX retten (wegen ZPM3)
-	push	ActDPX		; R}ckkehr-Adresse f}r alle folgenden 'RET'
+ActDPB::push	ix		; Save IX (because it is used by ZPM3)
+	push	ActDPX		; Return address for all following 'RET'
 	ld	ix,Buffer
-	ld	a,21h		; erstes Vergleichs-Byte
-	cp	(ix)		; Adresse 00h richtig ?
-	ret	nz		; nicht 21h : kein g}ltiger Parameterblock
-	cp	(ix+20h)	; Adresse 20h
+	ld	a,21h		; First comparison byte
+	cp	(ix)		; Address 00h right?
+	ret	nz		; not 21h : no valid Parameter block
+	cp	(ix+20h)	; Address 20h
 	ret	nz
-	cp	(ix+40h)	; Adresse 40h
+	cp	(ix+40h)	; Address 40h
 	ret	nz
-	cp	(ix+60h)	; Adresse 60h
+	cp	(ix+60h)	; Address 60h
 	ret	nz
 	ld	a,(ix+1)
-	cp	0AEh		; erstes ID-Byte pr}fen
+	cp	0AEh		; check first ID-Byte
 	ret	nz
 	ld	a,(ix+2)
-	cp	0BFh		; zweites ID-Byte pr}fen
+	cp	0BFh		; check second ID-Byte
 	ret	nz
-	pop	hl		; RET-Adresse von Stack
+	pop	hl		; discard RET-Address from Stack
 
-; Parameterblocks tats{chlich aufdatieren:
+; Update Disk Parameter Blocks
 
-	ld	hl,(CurDPH)	; aktueller DPH
-	ldw	hl,(hl+12)
-	ex	de,hl		; Zeiger auf DPB in DE
+	ld	hl,(CurDPH)	; point to current DPH
+	ldw	hl,(hl++12)
+	ex	de,hl		; Pointer to DPB in DE
 	ld	ixh,d
-	ld	ixl,e		; ... und in IX
+	ld	ixl,e		; ... and in IX
 	ld	hl,Buffer+3
-	ld	bc,17		; DPB 17 Byte lang
-	ldir			; DPB aus Buffer kopieren
+	ld	bc,17		; DPB 17 bytes long
+	ldir			; Copy DPB from Buffer
 	set	7,(ix+12) 	; Permanent Mounted Drive
 	ld	de,(CurDPH)
 	dec	de
 	ld	hl,Buffer+31
-	ld	bc,12		; 12 Byte
-	lddr			; Spur}bersetzungs-Werte vor DPH kopieren
+	ld	bc,12		; 12 Bytes
+	lddr			; Copy track translation values before DPH
 	ld	hl,(CurDPH)	; DPH
 	ldw	de,(hl)		; TRANS in DE
 	ld	ixh,d
-	ld	ixl,e		; ... und in IX
+	ld	ixl,e		; ... and in IX
 	ld	hl,Buffer+64
-	ld	bc,64		; TRANS-Tabelle 64 Byte lang (max.)
-	ldir			; aus Parameterblock laden (au~er S.1/33)
+	ld	bc,64		; TRANS table upto to 64 Byte long (max.)
+	ldir			; load from parameter block (except S.1/33)
 	ld	a,(Buffer+62)
-	ld	(ix),a		; Sektor 1
+	ld	(ix),a		; Sector 1
 	ld	a,(Buffer+63)
-	ld	(ix+32),a	; Sektor 33
-ActDPX:	pop	ix		; IX restaurieren (wegen ZPM3...)
+	ld	(ix+32),a	; Sector 33
+ActDPX:	pop	ix		; Restore IX (because it used by ZPM3...)
 
-; SELDSK-Ausgang (nur nach AutoFormat, als kaltem Einloggen).
-; Motor aus, Dichte restaurieren, FDC/DMA-Parameter anhand
-; des aktuellen DPB setzen, zul{ssiges Spurformat pr}fen.
+; SELDSK output (AutoFormat only, Cold logon of drive).
+; Motor off, restore Density and FDC/DMA Parameters based
+; on the current DPB, check permissible track format.
 
-; Damit nach dem kalten Einloggen auf jeden Fall das Laufwerk
-; DCHG r}cksetzt, wird nun Spur 1 angefahren. Da vorher zum
-; Lesen der Parameter DSKHOM aufgerufen wurde, wird auf jeden
-; Fall ein Step-Impuls ausgeben (R}cksetzbedingung).
+; After cold logging the drive DCHG resets and seek to track 1.
 
 SelDsX:
     if not loader
 	ld	a,1
-	call	Seek		; Spur 1 anfahren (DCHG r}cksetzen!)
-	call	MotOff		; Motor wieder aus
+	call	Seek		; Seek to track 1 (reset DCHG)
+	call	MotOff		; Drive Motor off again
     endif
-	push	ix		; retten f}r ZPM3
-	call	SetLen		; FDC- und DMA-Parameter wiederherstellen
-	ld	a,(DrvTyp)	; Typ des aktuellen Laufwerks
-	ld	b,a		; nach B f}r gleich
+	push	ix		; save for ZPM3
+	call	SetLen		; Restore FDC and DMA parameters
+	ld	a,(DrvTyp)	; Type of current selected drive
+	ld	b,a		; save it in B
 	bit	3,b
-	jr	nz,SelDx1	; 80-Spur-Laufwerk: alles erlaubt
-	ld	a,(ix-11)	; (IX=CURDPH aus SETLEN)
+	jr	nz,SelDx1	; If 80-Track drive: all OK
+	ld	a,(ix-11)	; (IX=CURDPH from SETLEN)
 	cp	45
-	jr	nc,SelDxE	; 40-Spur-Laufwerk, ab 45 Spuren Fehler
+	jr	nc,SelDxE	; 40-Track drive, from 45 tracks error
 SelDx1:	bit	4,b
-	jr	nz,SelDx2	; Zweiseitiges Laufwerk: alles ok
+	jr	nz,SelDx2	; If double-sided drive: all OK
 	ld	a,(ix-2)
 	and	3
-	jr	nz,SelDxE	; Einseitiges Laufwerk: ]berlauf unm|glich
+	jr	nz,SelDxE	; Single sided drive: Overflow impossible
 SelDx2:
     if not loader
-	ld	hl,LogMsk	; wenn alles ok:
+	ld	hl,LogMsk	; if everything is OK
 	ld	a,(CurMsk)
 	or	(hl)
-	ld	(hl),a		; Laufwerk als eingeloggt markieren
+	ld	(hl),a		; Mark the drive as logged in
     endif
-	ld	hl,(CurDPH)	; und zur}ck mit DPH in HL
+	ld	hl,(CurDPH)	; and return with DPH in HL
 	pop	ix
 	ret
 SelDxE:	ld	hl,0
 	pop	ix
-	ret			; 'Illegal Drive' : unzul{ssige Kombination
+	ret			; 'Illegal Drive' : invalid configuration
 
-; Sektor lesen. Bei Lesefehlern wird mehrere Male wiederholt, bevor der
-; Fehler gemeldet wird (definiert mit RdTry).
+; Sector Read. Read errors are repeated several times before an error
+; is reported (defined by RdTry).
 
 DskRd:
     if not loader
 	ld	a,(CurMsk)
-	and	(LogMsk)	; Laufwerk noch eingeloggt?
+	and	(LogMsk)	; Drive still logged in?
 	ld	a,-1
-	ret	z		; nein: Return mit A=FF (Media Change)
-	push	ResIOP		; sp{ter wieder Bus-Page
+	ret	z		; no: Return with A=FF (Media Change)
+	push	ResIOP		; save Bus-Page for later
     endif
-	call	DskPos		; Motor an, Kopf positionieren
+	call	DskPos		; Motor on, position head
 DskRd1::
     if not loader
-	ld	(DFunc),'R'	; bei Fehler: Meldung 'READ'
+	ld	(DFunc),'R'	; in case of error: message 'READ'
     endif
-	ldw	(Retry),RdRtry	; Einsprung f}r Wiederholungen
+	ldw	(Retry),RdRtry	; Repeat up to RdRtry attempts
 RdRtry:	ld	a,(Dense)
 	or	6		; FDC-Command 'READ DATA'
 	ld	(CList),a
-	ld	bc,900h+RdTry	; RdTry Versuche, 9 Byte Befehl
+	ld	bc,900h+RdTry	; RdTry tries, 9 Byte command
 DskRd2:	push	bc
 	ld	de,RdDmaPB
-	call	DskIO		; Sektor lesen
+	call	DskIO		; Sector read
 	pop	bc
-	call	c,TimErr	; Time-Out: fragen
-	jp	c,DskErr	; Fehlerabbruch: das war's...
-	call	ErrChk		; Fehler ?
-	jr	z,RWExit	; RET falls kein Fehler (mit A=0)
+	call	c,TimErr	; Time-Out: ask
+	jp	c,DskErr	; User cancelled: that's it...
+	call	ErrChk		; Error?
+	jr	z,RWExit	; RET if no error (with A=0)
 	dec	c
-	jr	nz,DskRd2	; nochmal versuchen
+	jr	nz,DskRd2	; try again
     if not loader
 	ld	a,(Quiet)
 	or	a
 	ld	a,1
-	ret	nz		; wenn Quiet aktiv: ohne Fehlermeldung zur}ck
+	ret	nz		; if Quiet active: return without an error msg
     endif
-	call	DatErr		; Lesefehler: fragen
-	jp	c,DskErr	; Fehler-Return
+	call	DatErr		; Read error: ask
+	jp	c,DskErr	; Error Return
 
 RWExit:	ld	hl,(CurDPH)
 	dec	hl
 	dec	hl
 	bit	3,(hl)
-	call	nz,Invert	; bei inverser Aufzeichnung Puffer invertieren
+	call	nz,Invert	; with inverse recording, invert the buffer
 
     if not loader
 MotOff::ld	hl,MotFlg
-	res	0,(hl)		; Motor verz|gert ausschalten (Rest }ber Interrupt)
+	res	0,(hl)		; Motor off after a delay (Rest via Interrupt)
     endif
 	xor	a
-	ret			; RET mit A=0 (Fehlerfrei)
+	ret			; RET with A=0 (No errors)
 
-; Sektor schreiben. Es wird bis zu mehrere Male geschrieben (WrTry), dann
-; mehrere Male (VerTry) verglichen. Gibt es jedesmal Fehler, so wird das
-; Ganze mehrmals (AllTry) wiederholt. Bei Fehler wird danach eine
-; Fehlermeldung ausgegeben.
-; HD-Bug-WorkAround von Stefan Nitschke: Beim ersten Auftreten eines
-; FDC-Overrun wird ein Flag gesetzt und erneut versucht (Rest siehe DSKIO).
+; Sector write. Attempt to write WrTry times, then compare VerTry times.
+; If there's a problem then retry AllTry times. If there's still an error
+; then print an error message.
+; HD Bug WorkAround by Stefan Nitschke: At the first appearance of a
+; FDC Overrun set a Flag and try again (see DSKIO for explanation).
 
     if not loader
 
 DskWr:	ld	a,(CurMsk)
-	and	(LogMsk)	; Laufwerk noch eingeloggt?
+	and	(LogMsk)	; Drive still logged in?
 	ld	a,-1
-	ret	z		; nein: Return mit A=FF (Media Change)
-	push	ResIOP		; sp{ter wieder Bus-Page
+	ret	z		; no: Return with A=FF (Media Change)
+	push	ResIOP		; later again Bus-Page
 	ld	hl,(CurDPH)
 	dec	hl
 	dec	hl
 	bit	3,(hl)
-	call	nz,Invert	; bei inverser Aufzeichnung Puffer invertieren
-	call	DskPos		; Motor an, Kopf positionieren
-DskWr1::ldw	(Retry),WrRtry	; Wiederhol-Einsprung
-WrRtry:	ld	e,AllTry	; Anzahl Versuche }ber alles
-Wr1:	ld	(DFunc),'W'	; Fehlermeldung vorbereiten
+	call	nz,Invert	; with inverse recording, invert the buffer
+	call	DskPos		; Motor on, position the head
+DskWr1::ldw	(Retry),WrRtry	; Write retry entry point
+WrRtry:	ld	e,AllTry	; Number of attempts for all
+Wr1:	ld	(DFunc),'W'	; Prepare the error message
 	ld	a,(Dense)
 	or	5		; FDC-Command 'WRITE DATA'
 	ld	(CList),a
-	ld	bc,900h+WrTry	; WrTry Schreibversuche, 9 Byte Befehl
+	ld	bc,900h+WrTry	; WrTry write attempts, 9 byte command
 Wr2:	push	bc
 	push	de
 	ld	de,WrDmaPB
-	call	DskIO		; Schreiben (bzw. versuchen)
+	call	DskIO		; Write (or retry)
 	pop	de
 	pop	bc
-	call	c,TimErr	; Time-Out: fragen
-	jr	c,DskErr	; Fehlerabbruch
-	call	ErrChk		; Fehler ?
-	jr	z,Verify	; falls kein Fehler -> Vergleich (Scan)
-	call	ChkBug		; bei Fehler: vielleicht HD-Bug?
-	jr	c,WrRtry	; ja: nochmal von vorne (WorkAround aktiv)
+	call	c,TimErr	; Time-Out: ask
+	jr	c,DskErr	; Abort
+	call	ErrChk		; Error?
+	jr	z,Verify	; if no error -> verify (Scan)
+	call	ChkBug		; if error: maybe HD-Bug?
+	jr	c,WrRtry	; yes: try write again (WorkAround active)
 	ld	a,(Result+1)	; FDC-Status 1
-	and	2		; NOT WRITABLE von FDC (WRPROT von FDD)
-	ret	nz		; RET mit A=2 falls Write-Protected
+	and	2		; NOT WRITABLE from FDC (WRPROT from FDD)
+	ret	nz		; RET with A=2 if Write-Protected
 Wr3:	dec	c
-	jr	nz,Wr2		; nochmal versuchen
-	call	DatErr		; fragen...
-	jr	c,DskErr	; --> Fehlerabbruch
-	jr	RWExit		; --> Ignorieren
+	jr	nz,Wr2		; try again
+	call	DatErr		; ask...
+	jr	c,DskErr	; --> User cancelled
+	jr	RWExit		; --> User Ignore
 
-Verify:	ld	a,VerTry	; Anzahl Scan-Versuche
+Verify:	ld	a,VerTry	; Number of verify attempts
 	or	a
-	jp	z,RWExit	; kein Verify: sofort weiter mit RWExit
-	ld	c,a		; Scan-Anzahl nach C
-	ld	(DFunc),'V'	; Kennung f}r Fehlermeldung
+	jp	z,RWExit	; no Verify: continue with RWExit
+	ld	c,a		; Set count to C
+	ld	(DFunc),'V'	; Identifier for error message
 	ld	a,(Dense)
 	or	11h		; FDC-Command 'SCAN EQUAL'
 	ld	(CList),a
 Ver1:	push	bc
 	push	de
 	ld	de,WrDmaPB
-	call	DskIO		; geschriebenen Sektor kontrollieren
+	call	DskIO		; write DMA to controller
 	pop	de
 	pop	bc
-	call	c,TimErr	; Time-Out (evtl. Retry bei DSKWR1)
-	jr	c,DskErr	; ...Abbruch
-	call	ErrChk		; Fehler ?
-	jp	z,RWExit	; falls fehlerfrei : RET mit A=0
+	call	c,TimErr	; Time-Out (possibly retry at DSKWR1)
+	jr	c,DskErr	; ...User Cancelled
+	call	ErrChk		; Error?
+	jp	z,RWExit	; no errors: RET with A=0
 	dec	c
-	jr	nz,Ver1		; Scan-Fehler: nochmal scannen
+	jr	nz,Ver1		; Scan-Error: try again
 	dec	e
-	jr	nz,Wr1		; alles erfolglos: nochmal ganz von vorne
-	call	DatErr		; fragen...
-	jp	nc,RWExit	; Ignorieren
+	jr	nz,Wr1		; all unsuccessful: try again from the beginning
+	call	DatErr		; ask...
+	jp	nc,RWExit	; ...User Ignored
 
     endif
 
-; Fehlermeldung mit Operation und Command/Resultliste ausgeben.
-; Dann mit A=1 (Datenfehler) und HL=0 (Illegal Drive) zum BDOS zur}ck.
+; Output an error message with the operation type and command/result list.
+; Then with A=1 (Data Error) and HL=0 (Illegal Drive) return to the BDOS.
 
 DskErr:
     if not loader
-	call	MotOff		; Motor ausschalten
-	ld	a,(@ErMde)	; ERROR-MODE aus SCB
+	call	MotOff		; Motor off
+	ld	a,(@ErMde)	; ERROR-MODE from SCB
 	inc	a
-	jr	z,ErrEx		; bei ErMde=FF keine Meldung, nur RET mit A=1
+	jr	z,ErrEx		; if ErMde=FF no message, only RET with A=1
     endif ; WBW 2017-02-28: Enable error reporting in loader
 	ld	a,(Drive)
 	add	a,'A'
-	ld	(DrvCod),a	; Drive-Bezeichner einsetzen
+	ld	(DrvCod),a	; Insert Drive letter into message
 	ld	hl,DrvMsg
-	call	PMsg		; Fehlermeldung ausgeben
+	call	PMsg		; Output error message
 	ld	hl,(Track)
-	call	PDec		; Spurnummer ausgeben
+	call	PDec		; Output track number
 	ld	hl,SecMsg
-	call	PMsg		; Sektor-Header ausgeben
+	call	PMsg		; Output Sector Header
 	ld	a,(PDrive)
-	bit	2,a		; Head-Bit (phys. Kopf)
+	bit	2,a		; Head-Bit (phys. head)
 	ld	c,'B'
-	call	nz,ConOut	; f}hrendes B bei Seite 1
+	call	nz,ConOut	; leading B at page 1
 	ld	hl,(PSect)
 	ld	h,0
-	call	PDec		; Sektor-Nummer
+	call	PDec		; Output sector number
 	ld	hl,CmdMsg
 	call	PMsg		; 'Command:'
 	ld	hl,CList
 	ld	b,9
-	call	HexLst		; 9 Byte FDC-Befehl ausgeben
+	call	HexLst		; Output 9 Byte FDC command bytes
 	ld	hl,ResMsg
 	call	PMsg		; 'Result:'
 	ld	hl,Result
 	ld	b,7
-	call	HexLst		; 7 Byte FDC-Result ausgeben
+	call	HexLst		; Output 7 Byte FDC Result codes in hex
 	;endif			; WBW 2017-02-28: Enable error reporting in loader
-ErrEx:	ld	a,1		; RET mit A=1 wegen Fehler
-	ld	hl,0		; falls Fehler beim AutoFormat... (DskSel)
+ErrEx:	ld	a,1		; RET with A=1 due to errors
+	ld	hl,0		; if AutoFormat fails... (DskSel)
 	ret
 
 ;***********************************************************************
-;**          Befehls-Ansteuerung des Floppy-Controllers               **
+;**          Command Control of the Floppy Disk Controller            **
 ;***********************************************************************
 
-; FDC-Ansteuerung: Befehls}bergabe; Anzahl Bytes in B.
-; I/O-Page mu~ bereits auf BOARDP gesetzt sein. Ver{ndert ABHL.
+; FDC Control: Command transfer numberof bytes in B.
+; I/O-Page must already be set to BOARDP. Changes ABHL.
 
 FdcCom::
     if loader
 	ld	hl,CList
     else
-	ld	hl,(CmdAdr)	; Zeiger auf Befehlsliste
+	ld	hl,(CmdAdr)	; Point to command list
     endif
-FdcCo1::in	a,(FdcSta)	; (Einsprung mit Zeiger in HL)
+FdcCo1::in	a,(FdcSta)	; (Entry with pointer in HL)
 	rla
-	jr	nc,FdcCo1	; warten bis FDC-RQM (Request for Master)
+	jr	nc,FdcCo1	; wait until FDC-RQM (Request for Master)
 	rla
-	jr	c,FdcErr	; bei falscher Datenrichtung: DIO-Error
+	jr	c,FdcErr	; with incorrect data direction: DIO-Error
 	ld	a,(hl)
-	out	(FdcDat),a	; Befehls/Datenbyte an FDC ausgeben
-	inc	hl		; Zeiger auf n{chstes Byte
-	djnz	FdcCo1		; alle Befehlsbytes ausgeben
+	out	(FdcDat),a	; Output command/data bytes to FDC
+	inc	hl		; pointer to next byte
+	djnz	FdcCo1		; output all command bytes
 	ret
 
-; DIO-Error (Datenrichtungsfehler im FDC) : Stoppen des Systems
-;*** evtl. Fehler korrigieren und weiterarbeiten?
-; (Ist Fehler }berhaupt korrigierbar?)
+; DIO-Error (Data Direction Error in FDC) : Stop the system
+;*** Possibly correct errors and continue working?
+; (Is error correctable at all?)
 
 FdcErr:	ld	hl,DioMsg
-	call	PMsg		; "DIO-Error" ausgeben
+	call	PMsg		; Output "DIO-Error"
 	di
-	halt			; sicherheitshalber nicht weiter arbeiten
+	halt			; for safety's sake do not continue working
 
-; Nach FDC-Fehlern beim Schreiben/Formatieren:
-; bei FDC-Overrun internes Flag HDBug setzen (damit dann nochmal versuchen).
-; Das aktiviert den WorkAround f}r den DMA-Bug in DskIO.
-; Ausgang mit CY wenn HD-Bug frisch erkannt, sonst mit NZ/NC.
+; After FDC errors during writing/formatting:
+; set FDC-Overrun internal Flag HDBug (then try again).
+; This activates the WorkAround for the DMA-Bug in DskIO.
+; Output with CY if HD-Bug is freshly recognised, otherwise with NZ/NC.
 
     if not loader
 
-ChkBug::ld	a,(Result+1)	; FDC-Statusregister 1
+ChkBug::ld	a,(Result+1)	; FDC-Status register 1
 	xor	10h		; Status (40) 10 (FDC Overrun) ?
-	ret	nz		; kein OR: nicht wegen DMA-Bug (NC)
-	ld	a,(HDBug)	; bisheriger Bug-Status
+	ret	nz		; no OR: not due to DMA-Bug (NC)
+	ld	a,(HDBug)	; previous Bug-Status
 	or	a
-	ret	nz		; HDBug schon bekannt: Ende mit NC
+	ret	nz		; HDBug already known: End with NC
 	sub	1		; A=FF, CY=1
-	ld	(HDBug),a	; beim ersten Mal: Flag setzen
+	ld	(HDBug),a	; the first time: set Flag
 	ret
 
     endif
 
-; DMA init f}r Sektor-Transfer, weiter mit INTCOM.
-; DE mu~ auf DMA-Parameterblock zeigen!
-; HD-Bug-WorkAround von Stefan Nitschke: Ab dem ersten HD-Bug jedesmal nach
-; DMASET die (undokumentierten!) I/O-Adressen FFxxE8 bis FFxxEB mit 0000
-; beschreiben. (Keiner wei~, warum das den Fehler behebt!)
+; DMA init for Sector-Transfer, continue with INTCOM.
+; DE must point to DMA Parameter block!
+; HD-Bug-WorkAround by Stefan Nitschke: From the first HD bug every time
+; DMASET the (undocumented!) I/O Addresses FFxxE8 to FFxxEB with 0000
+; described. (No one knows why that fixes the bug!)
 
-DskIO::	push	bc		; Befehlsl{nge (B) retten
+DskIO::	push	bc		; Save command length (B)
     if not loader
-	call	ClcDMA		; phys. DMA-Adresse aus log. berechnen
+	call	ClcDMA		; phys. DMA-Address from log. to calculate
 	ld	(RdDMA),hl
 	ld	(RdDMA+2),a
-	ld	(WrDMA),hl	; Adresse einsetzen
-	ld	(WrDMA+2),a	; Bank einsetzen
+	ld	(WrDMA),hl	; Address
+	ld	(WrDMA+2),a	; Bank
     endif
-	ex	de,hl		; Zeiger auf DMA-Parameter in HL
-	call	DmaSet		; DMA 0 initialisieren und starten
+	ex	de,hl		; Pointer for DMA Parameter in HL
+	call	DmaSet		; Initialise and start DMA 0
     if not loader
 	ld	a,(HDBug)
-	or	a		; HD-Write-Error aufgetreten ? 
-	jr	z,DskIO1	; wenn nicht, dann normal weitermachen
-	ld	bc,04E8h	; 4 Adressen ab FFxxE8 (IOPage noch DMAP)
-	ld	hl,0		; zu schreiben: Wort 0
-BugLp:	outw	(c),hl		; nicht-existente I/O Adressen beschreiben...
-	inc	c		; n{chste Adresse
-	djnz	BugLp		; bis alle 4 Adressen bearbeitet
+	or	a		; HD Write Error? 
+	jr	z,DskIO1	; if not, continue normally
+	ld	bc,04E8h	; 4 Addresses from FFxxE8 (IOPage still DMAP)
+	ld	hl,0		; to write: Word 0
+BugLp:	outw	(c),hl		; Describe non-existent I/O Addresses
+	inc	c		; next address
+	djnz	BugLp		; until all 4 addresses are processed
     endif
-DskIO1:	pop	bc		; (Befehlsl{nge in B)
+DskIO1:	pop	bc		; (Command length in B)
 
-; Befehlsausgabe an FDC mit Warten (begrenzt) auf dessen Interrupt. IOPage
-; wird auf BoardP gesetzt. Bei Verlassen grunds{tzlich BoardP eingestellt.
-; Time-Out fest auf 1s eingestellt (Home max. 240ms, I/O max. 400ms).
+; Output command to FDC with wait (limited) to its interrupt. IOPage
+; is set to BoardP. On exit Boardp is still set.
+; Time-Out is 1 second (Home max. 240ms, I/O max. 400ms).
 
 IntCom::iopage	BoardP
 	xor	a
-	ld	(FdcRdy),a	; FDC-Ready-Flag r}cksetzen
-	call	FdcCom		; FDC-Befehl ausgeben
+	ld	(FdcRdy),a	; Reset FDC Ready Flag
+	call	FdcCom		; Output FDC Command
 IntCo1::ld	hl,Cnt10
-	ldw	(hl),100	; Z{hler auf 1 Sekunde
+	ldw	(hl),100	; Counter to 1 second (100 * 10ms)
 	inc	hl
 IntCo2:	ld	a,(FdcRdy)
 	or	a
-	ret	nz		; FDC-INT dagewesen: RET mit CY=0
-	bit	7,(hl)		; Z{hler abgelaufen ?
-	jr	z,IntCo2	; Zeit noch nicht abgelaufen : weiter
+	ret	nz		; FDC-INT : RET with CY=0
+	bit	7,(hl)		; Count expired?
+	jr	z,IntCo2	; No, continue
 	iopage	DMAP
 	ld	hl,0
 	ld	c,tdr0
-	outw	(c),hl		; DMA 0 stoppen (Disable)
+	outw	(c),hl		; Stop DMA 0 (Disable)
 	iopage	BoardP
 	ld	a,88h
 	out	(FdcLdOR),a	; FDC: Programmed Reset
 	in	a,(FdcLdCR)
 	ld	a,8Ch
 	out	(FdcLdOR),a
-	in	a,(FdcSta)	; Danach wieder f}r "Special Mode" progr.
+	in	a,(FdcSta)	; Then again for "Special Mode" progr.
     if not loader
-	xor	a		; nach FDC-Reset alle "PCN" auf 0,
-	ld	(ResMsk),a	; ... deswegen alle 4 Laufwerke "ausloggen"
+	xor	a		; after FDC Reset all "PCN" to 0,
+	ld	(ResMsk),a	; ... that's why all 4 drives "log out"
     endif
-	scf			; Time-Out: RET mit CY=1
+	scf			; Time-Out: RET with CY=1
 	ret
 
-; DMA-Parameterblocks f}r Floppy-I/O (globale Labels f}r FORM).
+; DMA Parameter blocks for Floppy-I/O (global labels for FORM).
 
 RdDmaPB:defb	dal0		  ; DMA 0
     if loader
 	defw	Buffer
-	defb	81h		  ; Loader: Ziel fix Buffer (immer gebankt!)
+	defb	81h		  ; Loader: Target fixed Buffer on page 81xxxxh
     else
-RdDMA:	defs	3		  ; Dest wird eingesetzt
+RdDMA:	defs	3		  ; Used for destination
     endif
 	defb	FdcDack,0,BoardP  ; Src FDCDACK
-RdLen::	defs	2		  ; L{nge wird eingesetzt
+RdLen::	defs	2		  ; Used for length of buffer
 	defw	1110000010000000b ; descriptor: DMA 0 burst enable, Read
 
     if not loader
 WrDmaPB::defb	dal0		  ; DMA 0
 	defb	FdcDack,0,BoardP  ; Dest FDCDACK
-WrDMA:	defs	3		  ; Src wird eingesetzt
-WrLen::	defs	2		  ; L{nge wird eingesetzt
+WrDMA:	defs	3		  ; Used for source
+WrLen::	defs	2		  ; Used for length
 	defw	1000000010001100b ; descriptor: DMA 0 burst enable, Write
     endif
 
 ;***********************************************************************
-;**                 Hilfsroutinen zum Disk-I/O                        **
+;**                 Subroutines for Disk-I/O                          **
 ;***********************************************************************
 
-; Vor erstem R/W (Initial Select) Laufwerk auf Spur 0 fahren und rekalibrieren.
-; Motor wird angeschaltet, Abschalten nicht n|tig (HOME nie alleine).
-; Aufruf nur von DskSel (Initial Select) und TimErr (Time-Out FDC-Reset).
+; Before first R/W (Initial Select) seek drive to track 0 and recalibrate
+; Motor is switched on and left running (HOME).
+; Called only from DskSel (Initial Select) and TimErr (Time-Out FDC-Reset).
 
 DskHom:
     if not loader
-	call	MotOnW		; Motor an, warten bis Drive Ready
+	call	MotOnW		; Motor on, wait for Drive Ready
     else			; WBW 2017-02-28
 	iopage	BoardP		; WBW 2017-02-28
     endif
-	call	SetStp		; Takt f}r Steprate setzen
+	call	SetStp		; Set clock for step rate
 	ld	(CList),7	; FDC-Command 'RECALIBRATE'
 	ld	b,2
-	call	IntCom		; ausf}hren
+	call	IntCom		; command output
 	ld	a,(Result)
-	and	11010000b	; AT/IC und EC Flags pr}fen
+	and	11010000b	; check AT/IC and EC Flags
 	ld	b,2
-	call	nz,IntCom	; nochmal, falls 'Fehler' (Track>76)
+	call	nz,IntCom	; do it again if 'error' (Track>76)
     if loader
 	xor	a
 	ld	(CurTrk),a
@@ -576,15 +579,15 @@ DskHom:
 	ld	a,(CurMsk)
 	ld	hl,ResMsk
 	or	(hl)
-	ld	(hl),a		; entspr. Bit in ResMsk setzen: FDC "OnTrack"
-	ld	hl,(Drive)	; log. Laufwerk (0..3)
+	ld	(hl),a		; set corresponding bit in ResMsk: FDC "OnTrack"
+	ld	hl,(Drive)	; log. Drive (0..3)
 	ld	h,0
-	ld	(hl+CurTks),0	; aktuelle phys. Spur f}r Drive: 0
+	ld	(hl+CurTks),0	; current phys. track position for Drive: 0
     endif
-	jp	SetClk		; FDC-Taktrate wieder f}r I/O setzen
+	jp	SetClk		; go and set FDC clock rate again for I/O
 
-; DMA-Puffer invertieren (f}r inverse Aufzeichnung). Hierzu wird der
-; entsprechende Bereich in den 8k-Block 0000..1FFF eingeblendet.
+; Invert DMA buffer (for inverse recording).
+; Uses the area allocated for this in the 8k-Block 0000..1FFF
 
 Invert:
     if loader
@@ -592,396 +595,397 @@ Invert:
     else
 	iopage	MmuP
 	ld	a,10h
-	out	(pdr),a		; MMU PDR Pointer auf 'System 0'
-	in	a,(pdr)		; wg. Chipfehler
-	call	ClcDMA		; phys. DMA-Adresse berechnen (--> AHL)
-	ex	de,hl		; Adresse in ADE
+	out	(pdr),a		; Point the MMU PDR Pointer to 'System 0'
+	in	a,(pdr)		; wg. chip failure
+	call	ClcDMA		; calculate phys. DMA-Address (--> AHL)
+	ex	de,hl		; Address in ADE
 	ld	h,a
 	ld	a,d		; phys. Page in HA
-	and	0F0h		; f}r PDR nur obere 12 Adre~bits
+	and	0F0h		; for PDR only use upper 12 bits
 	or	0Ah		; Valid & Cacheable
-	ld	l,a		; g}ltiger PDR-Wert in HL
+	ld	l,a		; valid PDR value in HL
 	ld	c,bmp
-	outw	(c),hl		; ausgeben
-	lda	hl,(hl+10h)	; n{chster PDR-Wert
-	outw	(c),hl		; ausgeben
+	outw	(c),hl		; output
+	lda	hl,(hl+10h)	; next PDR value
+	outw	(c),hl		; output
 	ld	a,d
 	and	0Fh
-	ld	d,a		; Adresse innerhalb Kachel in DE (0..FFF)
+	ld	d,a		; Address within page in DE (0..FFF)
     endif
-	ld	hl,(RdLen)	; Pufferl{nge
+	ld	hl,(RdLen)	; Buffer length
 InvLp:	ld	a,(de)
-	cpl			; Byte im Puffer invertieren
+	cpl			; Invert the byte in the buffer
 	ld	(de),a
-	inc	de		; Zeiger erh|hen
-	dec	hl
+	inc	de		; bump pointer
+	dec	hl		; decrement length
 	ld	a,h
 	or	l
-	jr	nz,InvLp	; ganzen Puffer invertieren
+	jr	nz,InvLp	; and repeat for the entire buffer
     if not loader
 	ld	a,10h
-	out	(pdr),a		; MMU PDR Pointer auf 'System 0'
-	ld	b,2		; (C immer noch BMP)
+	out	(pdr),a		; MMU PDR Pointer to 'System 0'
+	ld	b,2		; (C still  contains BMP)
 	ld	hl,SysMMU
-	otirw			; MMU System-PDR's 0 und 1 restaurieren
+	otirw			; Restore MMU System-PDR's 0 and 1
     endif
 	ret
 
-; Kopf des Laufwerks auf Spur und Seite positionieren, verschiedene
-; ]berlaufmethoden ber}cksichtigt.
-; Zun{chst ]berlauf und Sektornummern bearbeiten:
+; Position the head of the drive on track and side. Different
+; overflow methods are considered.
+; First, overflow and edit sector numbers:
 
-DskPos::push	ix		; f}r ZPM3
+DskPos::push	ix		; for ZPM3
     if not loader
-	call	MotOnW		; Motor an, evtl. warten
+	call	MotOnW		; Motor an, possibly wait
     else			; WBW 2017-02-28
 	iopage	BoardP		; WBW 2017-02-28
     endif
 	ld	a,(Track)
-	ld	c,a		; log. Spur in C
-	ld	ix,(CurDPH)	; Zeiger auf DPH f}r Format-Parameter
-	ld	a,(ix-8)	; Spur}bersetzungsverfahren (0=keins)
+	ld	c,a		; log. Track in C
+	ld	ix,(CurDPH)	; Point to DPH for Format Parameters
+	ld	a,(ix-8)	; Track translation method (0=none)
 	or	a
-	jp	nz,TTrans	; ]bersetzung aktiv: ausf}hren
+	jp	nz,TTrans	; Translation active: execute
 	ld	a,(ix-2)
 	and	3
-	ld	b,a		; ]berlauf-Bits in B, Z-Flag bei 'None'
-	ld	a,(Sector)	; Sektor (aus TRANS-Tabelle) in A
-	jr	z,DskPoX	; kein ]berlauf: Track/Sector direkt verwenden
+	ld	b,a		; Overflow Bits in B, Z-Flag on 'None'
+	ld	a,(Sector)	; Sector (from TRANS table) in A
+	jr	z,DskPoX	; no overflow: Use Track/Sector directly
 
 	djnz	DskPo1
-	rlca			; Sektor}berlauf:
-	rrca			; Bit 7 nach CY kopiert
-	res	7,a		; nur 7 Bit Sektornummer
+	rlca			; Sector overflow:
+	rrca			; Bit 7 copied to CY
+	res	7,a		; only 7 Bit Sector number
 	jr	DskPoX
 
 DskPo1:	djnz	DskPo2
 	ex	a,c
-	cp	(ix-11)		; Spur}berlauf: Vergleich mit Spuranzahl
+	cp	(ix-11)		; Track overflow: Compare with track number
 	ccf
-	jr	nc,DskPo1a	; Spur kleiner als Anzahl: Seite 0
-	sub	(ix-11)		; sonst Anzahl abziehen
-	scf			; --> Seite 1
+	jr	nc,DskPo1a	; Track smalled then count: Side 0
+	sub	(ix-11)		; otherwise deduct the number
+	scf			; --> Page 1
 DskPo1a:ex	a,c
 	jr	DskPoX
 
-DskPo2:	srl	c		; Halbspur}berlauf: Spur /2, Head --> CY
+DskPo2:	srl	c		; Half track overflow: Track/2, Head --> CY
 
-DskPoX:	ld	(PSect),a	; phys. Sektornummer speichern
-	ld	(EOT),a		; EOT wegen fehlendem Terminal Count
-	lda	hl,(ix-10)	; Zeiger auf Kopfnummern
+DskPoX:	ld	(PSect),a	; Save phys. sector number
+	ld	(EOT),a		; EOT due to missing terminal count
+	lda	hl,(ix-10)	; Pointer to head number
 	ld	a,(PDrive)
-	res	2,a		; falls Seite 0 : HEAD-Bit r}cksetzen
-	jr	nc,DskPoY	; Seite 0 : PDRIVE unver{ndert
-	set	2,a		; Seite 1 : HEAD-Bit f}r FDC setzen
-	inc	hl		; Zeiger auf Kopfnummer f}r Seite 1
+	res	2,a		; if Page 0 : reset HEAD Bit
+	jr	nc,DskPoY	; Page 0 : PDRIVE unchanged
+	set	2,a		; Page 1 : set HEAD Bit for FDC
+	inc	hl		; Point to head number for Side 1
 DskPoY:	ld	(PDrive),a
 	ld	a,(hl)
-	ld	(Head),a	; Kopfnummer im ID-Feld
+	ld	(Head),a	; Store the head number in ID-Field
 
-	ld	a,c		; phys. Spurnummer
+	ld	a,c		; phys. Track number
 	cp	(ix-11)
-	jr	nc,Step2	; Spurnummer zu gro~: nicht anfahren!	
+	jr	nc,Step2	; Track number too big: do not start!	
 
-; Double-Stepping bei <45 Spuren auf 80-Spur-Laufwerk:
+; Double-Stepping for <45 tracks on a 80 track drive
 
-	ld	a,(ix-11)	; Spuranzahl
+	ld	a,(ix-11)	; Track number
 	cp	45
-	ld	a,c		; Spurnummer in A
-	jr	nc,Step1	; bei }ber 45 Spuren stepping 1:1
+	ld	a,c		; Track number in A
+	jr	nc,Step1	; at over 45 tracks stepping 1:1
 	ld	a,(DrvTyp)
-	bit	3,a		; Laufwerk 40 oder 80 Spuren ?
-	ld	a,c		; Spurnummer in A
-	jr	z,Step1		; unter 45 Spuren auf 40er LW auch 1:1
-	add	a,a		; sonst double-stepping (f}r 48 TPI)
-Step1:	call	Seek		; Spur anfahren
-	ld	a,c		; Spurnummer wieder in A
-Step2:	ld	(PTrack),a	; f}r R/W speichern
+	bit	3,a		; 40 or 80 Track drive?
+	ld	a,c		; Track number in A
+	jr	z,Step1		; under 45 tracks on 40 LW also 1:1
+	add	a,a		; otherwise double-stepping (for 48 TPI)
+Step1:	call	Seek		; Seek to track
+	ld	a,c		; Track number in A
+Step2:	ld	(PTrack),a	; save it R/W routine
 	pop	ix
 	ret
 
-; Spur}bersetzungsverfahren:
+; Track translation process:
 
-TTrans:	ld	b,a		; Verfahren nach B
+TTrans:	ld	b,a		; Method in B
 	djnz	TTran2
-	ld	a,(ix-11)	; Verfahren 1:
+	ld	a,(ix-11)	; Method 1:
 	dec	a
 	cp	c
-	jr	nc,TTranX	; Spur kleiner max --> ok, Vorderseite
-	add	a,(ix-11)	; 2*max -1 (dh zB 79 oder 159)
-	sub	c		; Spuren hinten r}ckl{ufig
+	jr	nc,TTranX	; Track smaller max --> ok, front
+	add	a,(ix-11)	; 2*max -1 (i.e. 79 or 159)
+	sub	c
 	ld	c,a
-	scf			; --> Seite 1
+	scf			; --> Page 1
 	jr	TTranX
 
-TTran2:	djnz	TTran3		; Verfahren 2:
+TTran2:	djnz	TTran3		; Method 2:
 	ld	a,c
-	sub	(ix-11)		; Spur - Spurzahl
+	sub	(ix-11)		; Track - tracks per side
 	ccf
-	jr	nc,TTran2a	; Spur kleiner Spurzahl: Seite 0
-	ld	c,a		; sonst Spur korrigiert, Seite 1
-TTran2a:push	af		; CY retten
+	jr	nc,TTran2a	; Track of small number of tracks: Side 0
+	ld	c,a		; otherwise track correct, Side 1
+TTran2a:push	af		; save CY
 	ld	b,(ix-11)
-	srl	b		; halbe Spurzahl nach B
+	srl	b		; half track number to B
 	ld	a,c
-	add	a,b		; erste Spuren ab max/2
+	add	a,b		; first tracks from max/2
 	cp	(ix-11)
-	jr	c,TTran2b	; noch unterhalb max: ok
+	jr	c,TTran2b	; still below max: ok
 	sub	(ix-11)		; 0..max/2-1
 	neg	a		; 0..-max/2+1
 	add	a,b		; max/2..1
 	dec	a		; max/2-1..0
-TTran2b:ld	c,a		; Spur aus A nach C
-	pop	af		; Head wieder in CY
+TTran2b:ld	c,a		; Track from A to C
+	pop	af		; Head back in CY
 	jr	TTranX
 
 TTran3:	djnz	TTran4
-	ld	a,c		; Verfahren 3:
-	dec	a		; Spuren 1 und 2 (jetzt: 0 und 1) vertauschen
+	ld	a,c		; Method 3:
+	dec	a		; Swap tracks 1 and 2 (now: 0 and 1)
 	cp	2
-	jr	nc,TTran3a	; nichts vertauschen: andere Spur
+	jr	nc,TTran3a	; do not swap if another track
 	xor	1
 	inc	a
-	ld	c,a		; vertauschte Spur 2 und 1 in C
-TTran3a:srl	c		; Spur/2, Head in CY
+	ld	c,a		; switched track 2 and 1 in C
+TTran3a:srl	c		; Track/2, Head in CY
 
 TTranX:	ld	a,(Sector)
-	jp	DskPoX		; mit Sektor in A (Head in CY) weitermachen
+	jp	DskPoX		; continue with Sector in A (Head in CY)
 
-TTran4:	srl	c		; Verfahren 4: Eigentlich Halbspur}berlauf
-	jr	nc,TTranX	; Seite 0: ok
+TTran4:	srl	c		; Method 4: Actually half-track overflow
+	jr	nc,TTranX	; Side 0: ok
 	ld	a,(Sector)
-	add	a,(ix-12)	; Seite 1: Sektoren weiterz{hlen!
+	add	a,(ix-12)	; Side 1: Continue counting sectors
 	scf
 	jp	DskPoX
 
-; Anfahren einer physikalischen Spur (in A), global f}r Format-Manager.
+; Seek drive to physical track (in A), global for Format-Manager.
 
-Seek::	ld	(PTrack),a	; Spur in FDC-Befehl einsetzen
+Seek::	ld	(PTrack),a	; Save track in FDC command
     if loader
 	ld	hl,CurTrk
     else
-	ld	hl,(Drive)	; log. Laufwerk (0..3)
+	ld	hl,(Drive)	; log. Drive (0..3)
 	ld	h,0
-	lda	hl,(hl+CurTks)	; Zeiger auf phys. Spur dieses Drive
+	lda	hl,(hl+CurTks)	; Pointer to phys. track for this drive
     endif
 	cp	(hl)
-	jr	z,SetClk	; Spur stimmt schon: phys. Seek nicht n|tig
-	ld	(hl),a		; sonst aktuelle phys. Spur speichern
+	jr	z,SetClk	; Already on this track, seek not necessary
+	ld	(hl),a		; otherwise save the current track
 	push	bc
-	iopage	BoardP		; (falls aus FORM kommend)
-	call	SetStp		; FDC-Takt f}r Steprate setzen
+	iopage	BoardP		; (if coming from FORM)
+	call	SetStp		; set step-rate for FDC clock
 	ld	(CList),0Fh	; FDC 'SEEK'
 	ld	b,3
-	call	IntCom		; FDC-Ausgabe
-	pop	bc		; Fall-thru: FDC-Taktrate wieder f}r I/O
+	call	IntCom		; FDC-edition
+	pop	bc		; Fall-thru: FDC clock rate again for I/O
 
-; Taktrate f}r FDC entsprechend Laufwerkstyp und aktuellem Format setzen.
-; SetHD bzw. SetLD setzen FDC-Takt direkt f}r High- bzw. Normal-Density.
-; SetStp setzt die Taktrate auf den f}r richtige Steprate ben|tigten Wert.
-; Board-Page vorausgesetzt!
+; Set FDC clock rates according to drive type and current format.
+; SetHD or SetLD sets FDC clock direcly for High or Normal Density.
+; SetStp sets the clock rate to the value required for the proper step rate.
+; Board-Page required!
 
 SetClk::ld	hl,(CurDPH)
 	dec	hl
 	dec	hl
 	bit	7,(hl)		; High-Density-Format ?
-	jr	z,setld		; nein: normale Taktrate setzen
-SetHD::	out	(Drv_0),a	; FDC-DRV auf LOW : 'High Density'
+	jr	z,setld		; no: set normal clock rate
+SetHD::	out	(Drv_0),a	; FDC-DRV on LOW : 'High Density'
 	xor	a
 	out	(FdcLdCR),a	; CR := 0 --> 500 kb/s
-	ld	(LDFlag),a	; Low-Density-Flag r}cksetzen
+	ld	(LDFlag),a	; reset Low-Density-Flag
 	ret
 
-SetLD::	out	(Drv_1),a	; FDC-DRV auf HIGH : 'Low Density'
+SetLD::	out	(Drv_1),a	; FDC-DRV on HIGH : 'Low Density'
 	ld	a,1
-	ld	(LDFlag),a	; Low-Density-Flag setzen
+	ld	(LDFlag),a	; set Low-Density-Flag
 	ld	a,(DrvTyp)
-	and	3		; untere 2 Bit spezifizieren Taktrate
+	and	3		; lower 2 bits specify clock rate
 	cp	3
-	adc	a,-1		; aus 0123 wird 0122 f}r Control Register
-	out	(FdcLdCR),a	; CR entsprechend setzen
+	adc	a,-1		; 0123 becomes 0122 for Control Register
+	out	(FdcLdCR),a	; set CR accordingly
 	ret
 
-SetStp:	ld	a,(DrvTyp)	; Typ-Bit 3 : 40/80 Track-Laufwerk
-	cpl			; Bit 3 jetzt 0 = 80T, 1 = 40T
-	and	8		; Bit isolieren
+SetStp:	ld	a,(DrvTyp)	; Type Bit 3 : 40/80 Track Drive
+	cpl			; Bit 3 now 0 = 80T, 1 = 40T
+	and	8		; isolate Bit
 	rrca
-	rrca			; Wert 2 bei 40T, 0 bei 80T
-	out	(FdcLdCR),a	; --> 500 KHz bei 80T, 250 KHz bei 40T
+	rrca			; Value 2 at 40T, 0 at 80T
+	out	(FdcLdCR),a	; --> 500 KHz for 80T, 250 KHz for 40T
 	ret
 
-; DMA- und FDC-Parameter entsprechend DPB setzen. Anschlie~end IX = CURDPH.
-; Globaler Einsprung SETLN1 f}r Format-Manager (Lesen beliebiger Sektoren)
+; Set DMA and FDC Parameters according to DPB. Subsequently IX = CURDPH.
+; Global entry point SETLN1 for Format-Manager (reading of arbitary sectors)
 
 SetLen:	ld	ix,(CurDPH)
 	ld	a,(ix-2)	; Bit-Flags
 	and	40h
-	ld	(Dense),a	; Density-Flag setzen
-	ldw	hl,(ix+12)	; Zeiger auf DPB
+	ld	(Dense),a	; Set Density-Flag
+	ldw	hl,(ix+12)	; Pointer to DPB
 	ld	a,(hl+15)	; PSH (Physical Sector Shift)
-	ld	(FdcN),a	; N in CLIST eintragen
+	ld	(FdcN),a	; enter N in CLIST
 SetLn1::add	a,a
-	exts	a		; 2*N nach HL (Bereich 0..10)
-	ldw	hl,(hl+LenTab)	; Sektorl{nge aus Tabelle holen
+	exts	a		; 2*N to HL (range 0..10)
+	ldw	hl,(hl+LenTab)	; Get sector length from table
 	ld	(RdLen),hl
     if not loader
-	ld	(WrLen),hl	; einsetzen
+	ld	(WrLen),hl	; use
     endif
 	ret
 
 LenTab:	defw	128,256,512,1024,2048,4096
 
-; MOTONW schaltet den Motor an und wartet 1 Sekunde, wenn Motor vorher aus.
+; MOTONW turns on the drive Motor and waits 1 Second if the motor was off.
 ; WBW 2017-02-28: MotOnW routine is now enabled for loader build.  In this
-; case it just sets the iopage which is assumed by code using this routiner.
+; case it just sets the iopage which is assumed by code using this routine.
 ; For loader, the rest of the routine is not relevant.
 
     if not loader
-MotOnW::iopage	BoardP		; Page f}r Motor-Port
-	out	(Mot_On),a	; Motor anschalten
+MotOnW::iopage	BoardP		; select IO Page for Motor-Port
+	out	(Mot_On),a	; Motor ON
 	ld	hl,MotFlg
 	ld	a,3
-	ex	a,(hl)		; Motor-Flag setzen, altes Flag in A
+	ex	a,(hl)		; Motor-Flag set, old flag in A
 	or	a
-	ret	nz		; Motor schon/noch an: nicht warten
+	ret	nz		; Motor already on: do not wait
 	ld	hl,Cnt10
-	ld	(hl),100	; Z{hler auf 1 sec. (100 * 10 ms)
-M_OnW1:	bit	7,(hl)		; negativ (abgelaufen) ?
-	jr	z,M_OnW1	; noch nicht abgelaufen : weiter
+	ld	(hl),100	; Counter to 1 sec. (100 * 10 ms)
+M_OnW1:	bit	7,(hl)		; busy wait
+	jr	z,M_OnW1
 	ret
     endif
 
-; CHKDEN pr}ft Dichte der Diskette (HD, MFM, FM, nur f}r AutoFormat).
-; RET mit Z bedeutet lesbares Indexfeld, sonst NZ (bei Fehler).
-; (Global f}r Format-Manager.)
+; CHKDEN checks disk density (HD, MFM, FM, AutoFormat only).
+; RET with Z means readable Indexfeld, otherwise NZ (in case of error).
+; (Global for Format-Manager.)
 
-ChkDen::ld	a,(DrvTyp)	; aktueller Laufwerkstyp
+ChkDen::ld	a,(DrvTyp)	; current drive type
 	rra
-	jr	nc,ChkD1	; kein HD-Laufwerk : mit MFM anfangen
-	call	SetHD		; HD-Einstellungen setzen
-	ld	a,40h		; HD immer MFM
-	call	CheckD		; Lesen versuchen
+	jr	nc,ChkD1	; no HD-Drive: start with MFM
+	call	SetHD		; Use HD settings
+	ld	a,40h		; HD is always MFM
+	call	CheckD		; Try reading disk
 	ret	z		; OK : RET (Z,NC)
 	ret	c		; Time-Out : NZ,C
-ChkD1:	call	SetLD		; MFM/FM-Einstellungen setzen
+ChkD1:	call	SetLD		; Try LD using MFM/FM
 	ld	a,40h
-	call	CheckD		; MFM testen
-	ret	z		; wenn ok: RET (Z,NC)
+	call	CheckD		; test MFM
+	ret	z		; success: RET (Z,NC)
 	ret	c		; Time-Out : NZ,C
-	xor	a		; FM testen (und RET mit Z oder NZ)
+	xor	a		; now try FM (and RET with Z or NZ)
 
-CheckD:	ld	(Dense),a	; neues Flag speichern
+CheckD:	ld	(Dense),a	; save new density flag
 ChkD2::	or	0Ah		; FDC 'READ ID'
 	ld	(CList),a
 	ld	b,2
-	call	IntCom		; an FDC, anschlie~end ERRCHK
-	ret	c		; RET mit CY=1 bei Time-Out
+	call	IntCom		; to FDC, then ERRCHK
+	ret	c		; RET with CY=1 if Time-Out
 
-; Pr}fung der FDC-Statuswerte auf Fehler (grunds{tzlich nach Result Phase).
-; Return mit Z (ok) oder NZ (Fehler), nur AF benutzt.
-; Da einzelne Sektoren nur }ber entspr. EOT bearbeitet werden k|nnen, tritt
-; bei allen R/W Operationen 'Abnormal Termination' auf. Kein Fehler!
+; Check FDC status values for errors (basically after Result Phase).
+; Return with Z (ok) or NZ (Error), only AF used.
+; Since individual sectors can only be processed via the corresponding EOT,
+; this check is used on all R/W 'Abnormal Termination' operations.
 
 ErrChk::ld	a,(Result)	; FDC Status 0
-	and	10010000b	; Normal und Abnormal Termination sind ok!
-	ret	nz		; Invalid Command oder Equipment Check (Home)
+	and	10010000b	; Normal and Abnormal Termination are ok!
+	ret	nz		; Invalid Command or Equipment Check (Home)
 	ld	a,(Result+1)	; FDC Status 1
-	and	00110111b	; DE,OR,ND,NW,MA sind Fehler (EN ignorieren)
+	and	00110111b	; DE,OR,ND,NW,MA are errors (ignore EN)
 	ret	nz
 	ld	a,(Result+2)	; FDC Status 2
-	and	01110111b	; CM,DD,WC,SN,BC,MD sind Fehler (SH ist ok)
+	and	01110111b	; CM,DD,WC,SN,BC,MD are errors (SH is ok)
 	ret
 
-; F}r Parameter-Lesen eigene Pr}froutine (OverRun ignorieren).
+; For Parameter reading engine test (ignore OverRun).
 
 ErChkP::ld	a,(Result)	; FDC Status 0
-	and	10010000b	; Normal und Abnormal Termination sind ok!
-	ret	nz		; Invalid Command oder Equipment Check (Home)
+	and	10010000b	; Normal and Abnormal Termination are ok!
+	ret	nz		; Invalid Command or Equipment Check (Home)
 	ld	a,(Result+1)	; FDC Status 1
-	and	00100111b	; DE,ND,NW,MA sind Fehler (EN,OR ignorieren)
+	and	00100111b	; DE,ND,NW,MA are errors (ignore EN and OR)
 	ret	nz
 	ld	a,(Result+2)	; FDC Status 2
-	and	01110111b	; CM,DD,WC,SN,BC,MD sind Fehler (SH ist ok)
+	and	01110111b	; CM,DD,WC,SN,BC,MD are errors (SH is ok)
 	ret
 
-; Fehlerbehandlung. Bei Disk-I/O-Fehlern (Schreib- und Lesefehlern) werden die
-; M|glichkeiten Wiederholen, Abbruch und Ignorieren angeboten. Zum Wiederholen
-; mu~ die Zieladresse von RETRY korrekt gesetzt sein! Ansonsten R}ckkehr zum
-; aufrufenden Programm mit CY=1 (Abbruch mit Fehler) bzw. CY=0 (Ignorieren).
+; Error handling. For Disk I/O Errors (read and write errors) the
+; choice of Repeat, Abort or Ignore are offered. To repeat, the destination
+; address of RETRY must be set correctly! Otherwise return to the
+; calling program with CY=1 (Abort with Error) or CY=0 (Ignore).
 
 DatErr:	ld	a,(Drive)
 	add	a,'A'
-	ld	(ErrDrv),a	; Laufwerksnamen in Meldung einsetzen
-	ld	hl,CrcMsg	; Fehlermeldung bei CRC-Fehlern
+	ld	(ErrDrv),a	; Insert drive name in message
+	ld	hl,CrcMsg	; Error message with CRC errors
 	ld	a,(Result+1)
-	bit	5,a		; CRC-Fehler (ID oder Daten) ?
-	jr	nz,DskEr1	; ja: speziellere Meldung
-	ld	hl,DskMsg	; nein: allgemeine Meldung
-DskEr1:	call	PMsg		; Fehlertext ausgeben
+	bit	5,a		; Is it a CRC error (ID or Data)?
+	jr	nz,DskEr1	; yes: more specific message
+	ld	hl,DskMsg	; no: general message
+DskEr1:	call	PMsg		; Output error text
 	ld	hl,ErrMsg
-	call	PMsg		; Rest der Meldung und Frage ausgeben
-DskEr2:	call	ConIn		; Eingabe abwarten
+	call	PMsg		; Remainder of error message and prompt
+DskEr2:	call	ConIn		; Wait for input character
     if not loader
 	cp	3
-	jr	z,DskEr4	; ^C: Abbruch, au~erdem ^C an Host
+	jr	z,DskEr4	; ^C: Cancel, also send ^C to Host
     endif
 	and	0DFh		; --> CAPS
 	cp	IgnoreChar
-	ret	z		; Ignorieren : RET mit NC
+	ret	z		; Ignore: RET with NC
 	cp	AbortChar
 	scf
-	ret	z		; Abbruch : RET mit C
+	ret	z		; Abort: RET with C
 	cp	RetryChar
-	jr	nz,DskEr2	; au~er 'Retry' sonst nichts erlaubt
-DskEr3:	pop	hl		; (Return-Adresse)
-	defb	0C3h		; Wiederholen (Einsprung wird gepatcht)
-Retry::	defw	0		; Patch-Adresse, global f}r FORM
+	jr	nz,DskEr2	; nothing else allowed except 'Retry'
+
+DskEr3:	pop	hl		; (Return address)
+	defb	0C3h		; Op-code for JP
+Retry::	defw	0		; Patch address, global for FORM
 
     if not loader
-DskEr4:	ld	(BrkFlg),0FFh	; in CHARIO: demn{chst ^C an Host
-	scf			; CY=1 : Abbruch (Abort)
+DskEr4:	ld	(BrkFlg),0FFh	; in CHARIO: return ^C to Host
+	scf			; CY=1 : (Abort)
 	ret
     endif
 
-; Time-Out bei Diskettenzugriff: Laufwerk nicht bereit.
-; Hier bestehen nur die M|glichkeiten Fehler/Wiederholen.
-; R}ckkehr daher entweder mit CY=1 oder gar nicht (stattdessen RETRY).
+; Disk Time Out: Drive Not Ready.
+; Here there are only two choices - Abort or Retry.
+; Return either CY=1 or not at all (RETRY instead).
 
 TimErr::ld	a,(Drive)
 	add	a,'A'
-	ld	(TimDrv),a	; Laufwerksnamen einsetzen
+	ld	(TimDrv),a	; Insert drive name in timeout message
 	ld	hl,TimMsg
-	call	PMsg		; Meldung und Frage ausgeben
+	call	PMsg		; Output message and prompt
 TimLp:	call	ConIn
     if not loader
 	cp	3
-	jr	z,DskEr4	; ^C: Abbruch, mit ^C an Host
+	jr	z,DskEr4	; ^C: Abort, with ^C an Host
     endif
 	and	0DFh		; --> CAPS
 	cp	'A'
 	scf
-	ret	z		; Fehlerabbruch : RET mit C
+	ret	z		; Abort: RET with C
 	cp	RetryChar
-	jr	nz,TimLp	; au~er 'Retry' sonst nichts erlaubt
-				; FDC hatte Software-Reset, deswegen:
-	call	DskHom		; Laufwerk auf Spur 0 fahren
-	call	DskPos		; Kopf neu positionieren (wegen PCN im FDC)
-	jr	DskEr3		; Versuch Wiederholen
+	jr	nz,TimLp	; only permit 'Retry' response
+				; perform Drive reset
+	call	DskHom		; Seek to Track 0
+	call	DskPos		; Reposition head (due to PCN in FDC)
+	jr	DskEr3		; Try again
 
-; Liste ab (HL) in Hex ausgeben, Anzahl Bytes in B.
+; Output (HL) in Hexadecimal, Number of Bytes in B.
 ; WBW 2017-02-28: Enable error reporting for loader build.
 
     ;if not loader		; WBW 2017-02-28 (comment out)
 HexLst::ld	c,' '
-	call	CO		; Blank als Trennzeichen
+	call	CO		; leading space
 	ld	a,(hl)
-	call	HexByt		; Byte aus (HL) in Hex ausgeben
+	call	HexByt		; Output Byte at (HL) in Hex
 	inc	hl
-	djnz	HexLst		; Zeiger+1, weiter
+	djnz	HexLst		; next byte
 	ret
     ;endif			; WBW 2017-02-28 (comment out)
 
-; Texte (verschiedene Fehlermeldungen):
+; Text (Error messages):
 
     if deutsch
 CrcMsg:	defz	cr,lf,'CRC'
@@ -1020,10 +1024,10 @@ ResMsg:	defz	', Result:'
 DioMsg:	defz	cr,lf,'DIO Error'
     endif
 
-; SPECIFY-Befehle zur Steprate-Umschaltung bei verschiedenen Laufwerken.
-; Achtung! ALLE Befehle enthalten die Steprate bei 8"-Takt (1ms-Schritte)!
-; Bei 40-Spur-Laufwerken wird der Takt halbiert (doppelte Steprate).
-; F}r die LW-Typen 2..7 jeweils ein eigener Befehl (3 Byte):
+; SPECIFY Step Rate commands for various drive types.
+; Caution! ALL commands contain the step rate at 8" clock (1ms step units)!
+; For 40 Track drives the clock is halved (double step rate).
+; For LW types 2..7 it includes a sepeate command (3 Bytes):
 
 Steps:	defb	3,0DFh,20h	; 3" DD	     Step 3 ms, Load/Unload 64/480 ms
 	defb	3,0DFh,20h	; 3" HD	     Step 3 ms, Load/Unload 64/480 ms
@@ -1032,10 +1036,10 @@ Steps:	defb	3,0DFh,20h	; 3" DD	     Step 3 ms, Load/Unload 64/480 ms
 	defb	3,0DFh,20h	; 5" DD	     Step 3 ms, Load/Unload 64/480 ms
 	defb	3,0DFh,20h	; 5" HD 300  Step 3 ms, Load/Unload 64/480 ms
 
-; Befehlsliste f}r Floppy Controller (konstant 9 Byte):
+; Command to Floppy Controller (always 9 Bytes):
 
     if not loader
-CmdAdr::defw	CList		; Zeiger auf Befehlsliste (f}r FORM)
+CmdAdr::defw	CList		; Pointer to command list (for FORM)
     endif
 
 CList::	defb	0		; command byte
@@ -1048,47 +1052,47 @@ EOT::	defb	1		; physical end of track (last sector number)
 GPL:	defb	4		; gap length (R/W)
 DTL:	defb	0FFh		; data length to be read or written (if N=0)
 
-; jeweils aktuelle Werte (von letzter Operation) :
+; Last operation saved values
 
     if not loader
-CurMsk:	defb	0		; Bitmaske: aktuelles PDrive
-ResMsk:	defb	0		; Bitmaske: Bits=0 nach FDC-Reset --> Home
+CurMsk:	defb	0		; Bit mask: current PDrive
+ResMsk:	defb	0		; Bit mask: Bits=0 after FDC-Reset --> Home
 
-Quiet::	defb	0		; Flag: Fehlermeldungen unterdr}cken (FORM)
-HDBug:	defb	0		; Flag: HD-Bug aufgetreten: WorkAround!
+Quiet::	defb	0		; Flag: Supress error messages (FORM)
+HDBug:	defb	0		; Flag: HD-Bug occured: WorkAround!
     endif
-DrvTyp::defs	1		; aktueller Laufwerkstyp (aus NVRAM)
-LDFlag::defs	1		; Low-Density-Flag (/HD), f}r FORM
-Dense::	defs 	1		; aktuelle Dichte (FM = 0, MFM = 40h)
+DrvTyp::defs	1		; Current Drive Type (from NVRAM)
+LDFlag::defs	1		; Low-Density-Flag (/HD), for FORM
+Dense::	defs 	1		; Actual density (FM = 0, MFM = 40h)
     if loader
-CurTrk::defs	1		; Aktuelle phys. Spur
+CurTrk::defs	1		; Current phys. Track
     else
-CurTks::defs	4		; Aktuelle phys. Spuren f}r alle 4 Laufwerke
+CurTks::defs	4		; Current phys. Track for each of the 4 drives
     endif
 
 	cseg			; resident
 
-Result::defs	7		; 7 Byte FDC-Ergebnisse (f}r Format-Manager!)
+Result::defs	7		; 7 Byte FDC Result codes (for Format-Manager!)
 
-;--- Alle Parameter auf Maximalwerten!
+;--- All parameters maximum values!
 MaxBlk	equ	880		; maximal 880 Blocks (--> ALV)
 MaxDir	equ	512		; maximal 512 Directory (--> CHK)
 
 	dseg			; banked
 
 ; Extended Disk Parameter Headers (XDPHs).
-; Eigene Erweiterung f}r AutoFormat-System (nicht nach DRI-Vorschlag):
-; vor dem offiziellen DPH liegen 12 Byte Informationen zum physikalischen
-; Format, die direkt aus dem FPB von der Diskette kopiert werden.
-; Einsprungadressen f}r Init/Login/Read/Write *hinter* dem offiziellen DPH.
-; Nur eine Initialisierungs-Routine f}r Floppy-I/O (nicht vorhandene
-; Laufwerke rausschmei~en).
+; These include extra AutoFormat-System (not like the DRI sample code)
+; prefixing the official DPH with 12 bytes of physical information, the
+; format of which are copied directly from the FPB on the floppy disk.
+; Entry addresses for Init/Login/Read/Write *after* the official DPH.
+; There's only one initialisation routine for Floppy-I/O (which disables
+; non-existent drive entries).
 
-	defb	5,80		; Phys. Sektoren und Spuren
+	defb	5,80		; Phys. Sectors and Tracks
 	defb	0,1		; Head0, Head1
-	defb	0		; Spur}bersetzung
+	defb	0		; Track translation
 	defb	0,0,0,0,0	; (reserved)
-	defb	11000001b,0	; BitFlag: Density, Invert, Multi, ]berlauf
+	defb	11000001b,0	; BitFlag: Density, Invert, Multi, Overflow
     if loader
 DPHB::
 DPHC::
@@ -1099,52 +1103,52 @@ DPHA::	defw	TransA,0,0,0,0,0
     if loader
 	defw	0,0,BCB,BCB,-1
 	defb	0
-	defw	0,DskSel,DskRd,0 ; Treiber-Einspr}nge
+	defw	0,DskSel,DskRd,0 ; Driver entry points
     else
 	defw	CSVA,ALVA,-2,-2,-2
 	defb	0
-	defw	DskIni,DskSel,DskRd,DskWr ; Treiber-Einspr}nge
+	defw	DskIni,DskSel,DskRd,DskWr ; Driver entry points
 
-	defb	5,80		; Phys. Sektoren und Spuren
+	defb	5,80		; Phys. Sector and Tracks
 	defb	0,1		; Head0, Head1
-	defb	0		; Spur}bersetzung
+	defb	0		; Track translation
 	defb	0,0,0,0,0	; (reserved)
-	defb	11000001b,0	; BitFlag: Density, Invert, Multi, ]berlauf
+	defb	11000001b,0	; BitFlag: Density, Invert, Multi, Overflow
 DPHB::	defw	TransB,0,0,0,0,0
 	defw	DPBB,CSVB,ALVB
 	defw	-2,-2,-2
 	defb	0
-	defw	0,DskSel,DskRd,DskWr ; Treiber-Einspr}nge
+	defw	0,DskSel,DskRd,DskWr ; Driver entry points
 
-	defb	5,80		; Phys. Sektoren und Spuren
+	defb	5,80		; Phys. Sectors and Tracks
 	defb	0,1		; Head0, Head1
-	defb	0		; Spur}bersetzung
+	defb	0		; Track translation
 	defb	0,0,0,0,0	; (reserved)
-	defb	11000001b,0	; BitFlag: Density, Invert, Multi, ]berlauf
+	defb	11000001b,0	; BitFlag: Density, Invert, Multi, Overflow
 DPHC::	defw	TransC,0,0,0,0,0
 	defw	DPBC,CSVC,ALVC
 	defw	-2,-2,-2
 	defb	0
-	defw	0,DskSel,DskRd,DskWr ; Treiber-Einspr}nge
+	defw	0,DskSel,DskRd,DskWr ; Driver entry points
 
-	defb	5,80		; Phys. Sektoren und Spuren
+	defb	5,80		; Phys. Sectors and Tracks
 	defb	0,1		; Head0, Head1
-	defb	0		; Spur}bersetzung
+	defb	0		; Track translation
 	defb	0,0,0,0,0	; (reserved)
-	defb	11000001b,0	; BitFlag: Density, Invert, Multi, ]berlauf
+	defb	11000001b,0	; BitFlag: Density, Invert, Multi, Overflow
 DPHD::	defw	TransD,0,0,0,0,0
 	defw	DPBD,CSVD,ALVD
 	defw	-2,-2,-2
 	defb	0
-	defw	0,DskSel,DskRd,DskWr ; Treiber-Einspr}nge
+	defw	0,DskSel,DskRd,DskWr ; Driver entry points
 
     endif
 
-; Sektor-Transformationstabellen f}r jedes Laufwerk
+; Sector translation tables for each drive (sector skew)
 
 TransA:	defb 	1,3,5,7,9,11,2,4,6,8,10
 	defb	129,131,133,135,137,139,130,132,134,136,138
-	defs 	42		; Sector Translation Table: gesamt 64 Byte
+	defs 	42		; Sector Translation Table: total 64 Bytes
 
     if not loader
 
@@ -1153,26 +1157,26 @@ ALVA:	defs	(MaxBlk+7)/4	; Allocation Vector (2 Bit)
 
 TransB:	defb 	1,3,5,7,9,11,2,4,6,8,10
 	defb	129,131,133,135,137,139,130,132,134,136,138
-	defs 	42		; Sector Translation Table: gesamt 64 Byte
+	defs 	42		; Sector Translation Table: total 64 bytes
 CSVB:	defs	(MaxDir+3)/4	; Checksum Vector
 ALVB:	defs	(MaxBlk+7)/4	; Allocation Vector (2 Bit)
 
 TransC:	defb 	1,3,5,7,9,11,2,4,6,8,10
 	defb	129,131,133,135,137,139,130,132,134,136,138
-	defs 	42		; Sector Translation Table: gesamt 64 Byte
+	defs 	42		; Sector Translation Table: total 64 bytes
 CSVC:	defs	(MaxDir+3)/4	; Checksum Vector
 ALVC:	defs	(MaxBlk+7)/4	; Allocation Vector (2 Bit)
 
 TransD:	defb 	1,3,5,7,9,11,2,4,6,8,10
 	defb	129,131,133,135,137,139,130,132,134,136,138
-	defs 	42		; Sector Translation Table: gesamt 64 Byte
+	defs 	42		; Sector Translation Table: total 64 bytes
 CSVD:	defs	(MaxDir+3)/4	; Checksum Vector
 ALVD:	defs	(MaxBlk+7)/4	; Allocation Vector (2 Bit)
 
     endif
 
-; Alle Parameterblocks auf maximale Tabellengr|~e angelegt (f}r GENCPM).
-; DPB's vorbelegt mit 3.5" HD Format.
+; All disk parameter blocks are set to the maximum size (for GENCPM).
+; DPB's are preloaded with 3.5" HD Format.
 
 	cseg			; resident!
 
