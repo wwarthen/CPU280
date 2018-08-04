@@ -336,8 +336,9 @@ SetMMU:	xor	a
 
 BootS:	iopage	boardp
 	ld	hl,Drive0
+	ld	bc,ValNum
+	ld	b,c		; Number of values to be read
 	ld	c,s$drv0-1
-	ld	b,ValNum	; Number of values to be read
 setup1:	inc	c		; Bump I/O-Address
 	ini			; Read 1 Byte
 	jr	nz,setup1	; continue until all values in buffer
