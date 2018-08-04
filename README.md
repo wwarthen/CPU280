@@ -105,6 +105,10 @@ Renamed ldos.mrl to ldos.rel (old ldos.rel deleted, as it was meant for SLRNK an
 
 The Windows Build scripts were modified and Linux scripts were added.
 
+#### English Comments
+
+Incorporated source from Tony Nicholson which converts all comments to English.
+
 ## Additional Information
 
 The best source of information for this project is the RetroBrew Computers Community Forum which can be found
