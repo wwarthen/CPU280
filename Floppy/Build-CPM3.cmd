@@ -8,10 +8,10 @@ copy ..\SYSTEM\ccp.com CPM3-Files\u0\
 copy ..\SYSTEM\cpm3.sys CPM3-Files\u0\
 
 
-copy ..\FORMAT\format-e.com CPM3-Files\u15\format.com
-copy ..\FORMAT\format.dat CPM3-Files\u15\
+copy ..\FORMAT\format-e.com CPM3-Files\u0\format.com
+copy ..\FORMAT\format.dat CPM3-Files\u0\
 
-copy ..\IDETEST\idetest.com CPM3-Files\u15\idetest.com
+copy ..\IDETEST\idetest.com CPM3-Files\u0\idetest.com
 
 for /d %%u in (0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15) do ^
 if exist CPM3-Files\u%%u\*.* ^
