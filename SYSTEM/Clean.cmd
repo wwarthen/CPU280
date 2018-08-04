@@ -4,8 +4,7 @@ setlocal
 if exist options.mac del options.mac
 
 if exist *.sys del *.sys
-if exist *.180 del *.180
-if exist *.lst del *.lst
+if exist *.prn del *.prn
 
 if exist loader.rel del loader.rel
 if exist lkernel.rel del lkernel.rel

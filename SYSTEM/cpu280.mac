@@ -104,7 +104,7 @@ DEL	equ	7Fh
 iopage	macro	page
 	ld	c,iop
 	ld	l,page
-	defb	0EDh,6Eh	; ldctl (c),hl
+	ldctl	(c),hl
 	endm
 
 ; Berechnen des Datums im CP/M-3-Format (f}r Versionsdaten).
@@ -113,12 +113,12 @@ iopage	macro	page
 
 ClcDat	macro
 Date	aset	(Year-78)*365 + (Year-77) shr 2 + Day
-	if	((Year and 3)=0) and (Month>2)
+	if	((Year and 3) eq 0) and (Month gt 2)
 Date	aset	Date+1
 	endif
 XMonth	aset	Month
 	irp	Md,<31,28,31,30,31,30,31,31,30,31,30,31>
-	if	XMonth>1
+	if	XMonth gt 1
 Date	aset	Date+Md
 XMonth	aset	XMonth-1
 	endif
@@ -158,4 +158,4 @@ sc$auxout	equ	0010Ah
 sc$time		equ	0010Bh
 sc$movex	equ	0010Ch
 sc$userf	equ	0010Dh
-
+

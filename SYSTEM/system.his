@@ -154,4 +154,9 @@ V1.2 of 8 March 2017:
   of where ccp.com is loaded from, it is now cached in RAM at a common
   location.
 
-
+V1.20.3 of June 2 2018:
+- Build script now uses ZSM4 to assemble the sources (pre280 is no longer
+  required). Some of the source files required minor modifications.
+
+
+

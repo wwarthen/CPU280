@@ -24,7 +24,7 @@ userf::	ld	a,e		; F-Code
 	jr	nc,tohigh	; zu hohe Funktionsnummer: TRAP
 	add	a,a
 	exts	a		; verdoppelt nach HL
-	ldw	hl,(hl++usetab)	; UP-Adresse aus Tabelle holen
+	ldw	hl,(hl+usetab)	; UP-Adresse aus Tabelle holen
 	jp	(hl)		; UP anspringen (RET --> SYSRET)
 
 usetab:	defw	vrsion		; 0 : Get BIOS Version Number

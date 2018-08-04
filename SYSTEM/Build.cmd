@@ -13,99 +13,81 @@ copy loader.mac options.mac
 
 echo Assembling "loader" ...
 echo.
-zx pre280 --O loader.180 loader
-zx slr180 -loader/ruf
+zx zsm4 -=loader.280/u/l
 
 echo Assembling "kernel" ...
 echo.
-zx pre280 --O lkernel.180 kernel
-zx slr180 -lkernel/ruf
+zx zsm4 -lkernel,lkernel=kernel.280/u
 
 echo Assembling "intrpt" ...
 echo.
-zx pre280 --O lintrpt.180 intrpt
-zx slr180 -lintrpt/ruf
+zx zsm4 -lintrpt,lintrpt=intrpt.280/u
 
 echo Assembling "diskio" ...
 echo.
-zx pre280 --O ldiskio.180 diskio
-zx slr180 -ldiskio/ruf
+zx zsm4 -ldiskio,ldiskio=diskio.280/u
 
 echo Assembling "halbl" ...
 echo.
-zx pre280 --O lhalbl.180 halbl
-zx slr180 -lhalbl/ruf
+zx zsm4 -lhalbl,lhlbl=halbl.280/u
 
 echo Assembling "hard" ...
 echo.
-zx pre280 --O lhard.180 hard
-zx slr180 -lhard/ruf
+zx zsm4 -lhard,lhard=hard.280/u
 
 echo Assembling "chario" ...
 echo.
-zx pre280 --O lchario.180 chario
-zx slr180 -lchario/ruf
+zx zsm4 -lchario,lchario=chario.280/u
 
 echo Assembling "setup" ...
 echo.
-zx pre280 --O setup.180 setup
-zx slr180 -setup/ruf
+zx zsm4 -=setup.280/u/l
 
 echo Generating (linking) "loader.cim" ...
 echo.
-zx slrnk -/v,/a:0,loader/n/y,loader,lkernel,lintrpt,ldiskio,lhalbl,lhard,lchario,setup,ldos,/e
+zx link -loader.cim[L0,OC]=loader,lkernel,lintrpt,ldiskio,lhalbl,lhard,lchario,setup,ldos
 
 copy system.mac options.mac
 
 echo Assembling "kernel" ...
 echo.
-zx pre280 --O kernel.180 kernel
-zx slr180 -kernel/muf
+zx zsm4 -=kernel.280/u/l
 
 echo Assembling "intrpt" ...
 echo.
-zx pre280 --O intrpt.180 intrpt
-zx slr180 -intrpt/muf
+zx zsm4 -=intrpt.280/u/l
 
 echo Assembling "boot" ...
 echo.
-zx pre280 --O boot.180 boot
-zx slr180 -boot/muf
+zx zsm4 -=boot.280/u/l
 
 echo Assembling "clock" ...
 echo.
-zx pre280 --O clock.180 clock
-zx slr180 -clock/muf
+zx zsm4 -=clock.280/u/l
 
 echo Assembling "chario" ...
 echo.
-zx pre280 --O chario.180 chario
-zx slr180 -chario/muf
+zx zsm4 -=chario.280/u/l
 
 echo Assembling "diskio" ...
 echo.
-zx pre280 --O diskio.180 diskio
-zx slr180 -diskio/muf
+zx zsm4 -=diskio.280/u/l
 
 echo Assembling "halbl" ...
 echo.
-zx pre280 --O halbl.180 halbl
-zx slr180 -halbl/muf
+zx zsm4 -=halbl.280/u/l
 
 echo Assembling "hard" ...
 echo.
-zx pre280 --O hard.180 hard
-zx slr180 -hard/muf
+zx zsm4 -=hard.280/u/l
 
 echo Assembling "form" ...
 echo.
-zx pre280 --O form.180 form
-zx slr180 -form/muf
+zx zsm4 -=form.280/u/l
 
 echo Assembling "scb" ...
 echo.
-zx pre280 --O scb.180 scb
-zx slr180 -scb/muf
+zx zsm4 -=scb.280/u/l
 
 echo Generating (linking) "bnkbios3.spr" ...
 echo.

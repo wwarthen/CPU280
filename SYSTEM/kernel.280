@@ -282,7 +282,7 @@ DTbl::	defw	DPHA,DPHB,DPHC,DPHD ; Floppy-Grundausstattung On-Board
     Part aset 0
     irpc i,<HIJKLMNOP>		; alle neun m|glichen Partitionen durchgehen
       Part aset Part+1
-      if Part <= Parts
+      if Part le Parts
 	defw	DPH&i		; vorhandene Partition: DPH eintragen
       else
 	defw	0		; sonst Null setzen
@@ -312,4 +312,4 @@ BCB::	defb	-1,0,0,0,0,0	; 1 deblocking buffer
     endif
 
 	end
-
+

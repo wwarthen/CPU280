@@ -24,22 +24,17 @@ chrnit:	macro
 	out	(rts1_en),a	; RTS1 := active
 	in	a,(s$c1bd)
 	add	a,a
-	;exts	a		; 2* Baud in HL
-	DEFB	0EDh,064h
+	exts	a		; 2* Baud in HL
 	in	a,(s$c1h)
-	;ldw	hl,(hl++ct1tab-2) ; normierter Teilerfaktor (*256) in HL
-	DEFB	0EDh,03Ch
-	DEFW	ct1tab-2
+	ldw	hl,(hl+ct1tab-2) ; normierter Teilerfaktor (*256) in HL
 	ld	c,0		; CPU-Frequenz *256 nach BC
-	;multuw	hl,bc		; Ergebnis (/65536) in DE
-	DEFB	0EDh,0C3h
+	multuw	hl,bc		; Ergebnis (/65536) in DE
 	ld	b,a		; Hardware-Parameter nach B
 	iopage	ctp
 	ex	de,hl		; Vorteilerwert --> HL
 	dec	hl		; -1 f}r Time Constant Register
 	ld	c,tc1
-	;outw	(c),hl		; neue 'Time Constant' f}r CT1
-	DEFB	0EDh,0BFh
+	outw	(c),hl		; neue 'Time Constant' f}r CT1
 	ld	a,10001000b
 	out	(cr1),a		; CT1: Cont. Timer, Output
 	ld	a,11100000b
@@ -68,7 +63,8 @@ chrnit:	macro
 
 ct1tab:	defw	64,32768,22342,18273,16384,8192,4096,2048,1366,1024,683,512,342,256,128
 
-exit:	endm
+exit:
+	endm
 
 ;***********************************************************************
 ;**                 Zeichenausgabe an Konsole                         **
@@ -113,5 +109,6 @@ inchar:	macro			;; ':' wegen PRE280 Interpretationsfehler
 	jr	z,exit		; nein: Exit mit CY gesetzt
 	in	a,(rdr)		; Zeichen lesen
 	or	a		; CY l|schen
-exit:	endm
-
+exit:
+	endm
+

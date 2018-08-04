@@ -271,7 +271,7 @@ OffsetP	equ	OffsetO+PartO	; Offset neunte Partition
 
 	irpc	i,<HIJKLMNOP>
 
-    if Part&i>0
+    if Part&i gt 0
 Blocks&i aset	Part&i*Heads*Secs/SpG&i	; Anzahl Groups in jeder Partition
 
 	defw	Offset&i	; Offset Tracks
@@ -283,7 +283,7 @@ DPH&i::	defw	0,0,0,0,0,0
 	defw	ALV&i,-2,-2,-2	; ALV; GENCPM: DirBCB, DtaBCB, Hash
       endif
 	defb	0		; Hash-Bank
-      if '&i' = 'H'
+      if '&i' eq 'H'
 	defw	HDInit		; Init-Einsprung
       else
 	defw	0		; weitere Partitionen kein Init
@@ -302,7 +302,7 @@ j	aset	SpG&i/2		; Berechnung des Block-Shift:
 BSH&i	aset	3
 	rept	8
 j	aset	j/2
-	if	j = 0
+	if	j eq 0
 	exitm
 	endif
 BSH&i	aset	BSH&i+1
@@ -311,8 +311,8 @@ BSH&i	aset	BSH&i+1
 BLM&i	equ	SpG&i*4-1	; Block-Mask
 
 EXM&i	aset	SpG&i/2-1	; Extent Mask
-	if	Blocks&i > 255
-	if	EXM&i = 0
+	if	Blocks&i gt 255
+	if	EXM&i eq 0
 	.printx	*** Illegal Blocksize Drive &i: ***
 	.dephase		; --> Error Return (MAKE Abort)
 	exitm
@@ -353,4 +353,4 @@ DPBK:	defw	4*Heads*Secs	; 128 byte sec/trk
 	endif			; (if hard)
 
 	end
-
+

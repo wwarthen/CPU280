@@ -113,11 +113,11 @@ DevIni::ld	a,c		; Device Code
 	ret	nc		; Code zu hoch : RETURN ohne Action
 	add	a,a
 	exts	a		; verdoppelt nach HL
-	ldw	hl,(hl++DviTbl)	; Adresse der Initialisierungsroutine
+	ldw	hl,(hl+DviTbl)	; Adresse der Initialisierungsroutine
 	push	hl		; ...auf Stack
 	multu	a,4		; 8x dev in HL (H=0)
 	ld	b,h		; Device in BC
-	ld	a,(hl++CTbl+7)
+	ld	a,(hl+CTbl+7)
 	ld	e,a		; Baudratencode in E
 	ld	hl,CTbl-1
 	subw	hl,bc		; Zeiger auf phys. Kommunikationsparameter
@@ -150,7 +150,7 @@ CPUIni:	ld	b,a		; Hardware-Parameter nach B
 	ld	h,0		; Baud nach HL
 	ld	e,h		; CPU-Frequenz *256 nach DE
 	add	hl,hl
-	ldw	hl,(hl++CT1Tab-2) ; normierter Teilerfaktor (*256) in HL
+	ldw	hl,(hl+CT1Tab-2) ; normierter Teilerfaktor (*256) in HL
 	multuw	hl,de		; Ergebnis (/65536) in DE
 	ex	de,hl		; --> HL
 	dec	hl		; -1 f}r Time Constant Register
@@ -243,9 +243,9 @@ IOCIni:	and	0E0h		; nur Bitbreite/ Auto Enables
 	and	0Fh		; untere 4 Bit f}r SIO-Reg4, in A
 	ld	l,e
 	ld	h,0		; Baud nach HL
-	or	a,(hl++SioDiv-1) ; SIO-Vorteilermaske dazu
+	or	a,(hl+SioDiv-1) ; SIO-Vorteilermaske dazu
 	ld	(Sio4),a	; SIO-Register 4 komplett
-	ld	a,(hl++CtcTab-1) ; Zeitkonstante f}r CTC 1..256 (0=256)
+	ld	a,(hl+CtcTab-1)	; Zeitkonstante f}r CTC 1..256 (0=256)
 	ld	(Speed),a	; in Init-Tabelle einsetzen
 	ld	hl,SioCtc-4
 	add	hl,bc		; (BC noch Device 2..4)
@@ -360,7 +360,7 @@ OStSc1:	or	0FFh		; Z=0
 CoStat:	push	hl
 	ld	a,8
 	multu	a,b		; HL = 8* Device
-	ld	a,(hl++CTbl+6)	; Mode-Byte des gew{hlten Device
+	ld	a,(hl+CTbl+6)	; Mode-Byte des gew{hlten Device
 	and	XonXoff		; XON/XOFF enable ?
 	jr	z,CoSt0		; Nein: Status direkt von Hardware
 	ld	a,b
@@ -393,7 +393,7 @@ CoSt:	push	hl
 CoSt0:	ld	a,9
 	multu	a,b		; HL = 9x Device
 	call	z,OSt0		; Device 0: Hardware-Handshake
-	lda	ix,(hl++Ports)	; Zeiger auf Device-Portdaten
+	lda	ix,(hl+Ports)	; Zeiger auf Device-Portdaten
 	iopage	(ix)		; I/O-Page setzen
 	pop	hl
 	ld	c,(ix+1)	; Statusportadresse
@@ -449,7 +449,7 @@ IStSc1:	xor	a		; A=0 (Z): nicht ex. Device 'NotReady'
 CiSt:	push	hl
 	ld	a,9
 	multu	a,b
-	lda	ix,(hl++Ports)	; Zeiger auf Device-Portdaten
+	lda	ix,(hl+Ports)	; Zeiger auf Device-Portdaten
 	iopage	(ix)		; I/O-Page entsprechend setzen
 	pop	hl
 	ld	c,(ix+5)	; Statusportadresse
@@ -619,4 +619,4 @@ Bd9600	equ	14	; 9600 Baud
 Bd19200	equ	15	; 19200 Baud
 
 	end
-
+

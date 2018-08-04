@@ -186,10 +186,10 @@ speed2:	in	a,(rtcc)
 	jr	z,speed2	; dasselbe nochmal mit z{hlen
 	ld	de,0
     if cache
-	lda	hl,(hl++448-20)	; f}r Rundung (Default-Wert in L ber}cks.)
+	lda	hl,(hl+448-20)	; f}r Rundung (Default-Wert in L ber}cks.)
 	divuw	dehl,896	; ergibt Taktfrequenz-Faktor
     else
-	lda	hl,(hl++198-20)
+	lda	hl,(hl+198-20)
 	divuw	dehl,397
     endif
 speeds:	ld	a,l
@@ -329,8 +329,9 @@ SetMMU:	xor	a
 
 BootS:	iopage	boardp
 	ld	hl,Drive0
+	ld	bc,ValNum	; Anzahl der zu lesenden Werte
+	ld	b,c
 	ld	c,s$drv0-1
-	ld	b,ValNum	; Anzahl der zu lesenden Werte
 setup1:	inc	c		; I/O-Adresse erh|hen
 	ini			; 1 Byte lesen
 	jr	nz,setup1	; bis alle Werte im Zwischenspeicher
@@ -340,8 +341,9 @@ setup1:	inc	c		; I/O-Adresse erh|hen
 BootS1:	call	hmenu		; Haupt-Menu des Setup
 	iopage	boardp		; I/O-Page f}r Setup-NVRAM
 	ld	hl,Drive0
+	ld	bc,ValNum	; Anzahl der zu speichernden Werte
+	ld	b,c
 	ld	c,s$drv0-1
-	ld	b,ValNum	; Anzahl der zu speichernden Werte
 exit1:	inc	c		; I/O-Adresse erh|hen
 	outi			; 1 Byte speichern
 	jr	nz,exit1	; bis alle Werte im Setup-RAM
@@ -360,7 +362,7 @@ exit1:	inc	c		; I/O-Adresse erh|hen
 ; Dabei werden bei Fehlern die entsprechenden Drives in DTBL gel|scht.
 ; Die RAM-Disks werden dabei ggf. initialisiert (Directory!).
 
-Boot:	ld	b,16		; Alle 16 logischen Laufwerke bearbeiten
+Boot::	ld	b,16		; Alle 16 logischen Laufwerke bearbeiten
 	ld	hl,DTbl		; Zeiger auf Drive Table
 DrvIni:	push	hl
 	ldw	hl,(hl)		; Eintrag aus Drive Table: XDPH
@@ -598,10 +600,10 @@ LdLp2:	ld	(DstAdr),de	; Zieladresse einsetzen
 	call	DmaSet		; Record aus EPROM booten
 	pop	bc
 	ld	hl,(SrcAdr)
-	lda	hl,(hl++80h)
+	lda	hl,(hl+80h)
 	ld	(SrcAdr),hl	; Quelle + 80h
 	ld	hl,(DstAdr)
-	lda	hl,(hl--80h)
+	lda	hl,(hl-80h)
 	ex	de,hl		; Ziel - 80h
 	djnz	LdLp2
 ; WBW 2017-03-08: Copy ROM-based CCP image to new common RAM-based
@@ -696,10 +698,10 @@ testlp:	iopage	mmup
 	out	(pdr),a		; PDR Pointer --> System Mode ab 8000h
 	ld	a,d
 	multu	a,128		; HL = Wert f}r Start-PDR
-	lda	hl,(hl++800Ah)	; konstante Steuerbits dazu
+	lda	hl,(hl+800Ah)	; konstante Steuerbits dazu
 	ld	bc,800h+bmp	; 8 Werte --> Block-Move-Port
 test1:	outw	(c),hl
-	lda	hl,(hl++0010h)	; n{chsten 4k-Block adressieren
+	lda	hl,(hl+0010h)	; n{chsten 4k-Block adressieren
 	djnz	test1		; ganzen 32k-Bereich einblenden
 
 ; Eigentlicher Speichertest. Schreibversuch mit Komplement des
@@ -737,7 +739,7 @@ test3:	ld	de,0
 	add	a,'0'		; Quotient --> ASCII-Ziffer
 	ld	l,a
 	outchr	l		; Ziffer ausgeben
-	lda	hl,(ix++0)	; Divisor nach HL
+	lda	hl,(ix+0)	; Divisor nach HL
 	divu	hl,10
 	ld	ixl,a
 	ld	ixh,0		; durch 10 geteilt wieder nach IX
@@ -877,13 +879,13 @@ CcpErr:	defz	BEL,'Fehler: CCP nicht ladbar',CR,LF
     if english
 TstMsg:	defm	CR,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF
 	defm	LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF
-	defm	'CPU280 Boot Loader V1.2 RBC 8-Mar-2017',CR,LF
+	defm	'CPU280 Boot Loader V1.2 RBC 4-Jun-2018',CR,LF
 	defm	'http://www.retrobrewcomputers.org',CR,LF
 	defm	'based on Cold Loader Program V1.13 TR 950314',CR,LF
 	defz	'Press DEL to run SETUP.',CR,LF
 FatMsg:	defz	CR,LF,'Fatal Error: not enough RAM'
 OkMsg:	defz	'k RAM ok'
-SignOn:	defm	CR,LF,LF,'CP/M-3 Loader V1.2 RBC 8-Mar-2017',CR,LF
+SignOn:	defm	CR,LF,LF,'CP/M-3 Loader V1.2 RBC 4-Jun-2018',CR,LF
 	defm	'based on CP/M-3 Loader V1.13',CR,LF
 	defm	'Booting system file from '
 BootFrm:defm	'drive '
@@ -894,4 +896,4 @@ CcpErr:	defz	BEL,'Error: CCP not loadable',CR,LF
     endif
 
 	end
-
+

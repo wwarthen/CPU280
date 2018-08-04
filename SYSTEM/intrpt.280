@@ -512,8 +512,8 @@ LogOut:	ld	hl,LogMsk	; --> Login-Vektor
 	ld	a,(StCmd+1)	; Laufwerksnummer
 	add	a,a
 	exts	a		; verdoppelt nach HL
-	ldw	hl,(hl++DTbl)	; DPH-Adresse in HL
-	ld	(hl++11),-1	; lokales Media-Flag setzen
+	ldw	hl,(hl+DTbl)	; DPH-Adresse in HL
+	ld	(hl+11),-1	; lokales Media-Flag setzen
 	ld	(@Media),-1	; globales Media-Flag setzen
 	ret
 
@@ -602,4 +602,4 @@ xstack::
     endif
 
 	end
-
+

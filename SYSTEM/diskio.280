@@ -66,7 +66,7 @@ DskSel:	ld	a,c		; Drive (0..3) nach A
 	exts	a		; PDrive nach HL
 	add	a,s$Drv0
 	ld	c,a		; Drive-Typ-Adresse (NVRAM) in C
-	ld	a,(hl++MskTbl)	; Bitmaske aus Tabelle holen
+	ld	a,(hl+MskTbl)	; Bitmaske aus Tabelle holen
 	ld	(CurMsk),a	; PDrive als Bitmaske
     endif
 	in	a,(c)		; Laufwerkstyp aus Setup-RAM
@@ -174,7 +174,7 @@ ActDPB::push	ix		; IX retten (wegen ZPM3)
 ; Parameterblocks tats{chlich aufdatieren:
 
 	ld	hl,(CurDPH)	; aktueller DPH
-	ldw	hl,(hl++12)
+	ldw	hl,(hl+12)
 	ex	de,hl		; Zeiger auf DPB in DE
 	ld	ixh,d
 	ld	ixl,e		; ... und in IX
@@ -579,7 +579,7 @@ DskHom:
 	ld	(hl),a		; entspr. Bit in ResMsk setzen: FDC "OnTrack"
 	ld	hl,(Drive)	; log. Laufwerk (0..3)
 	ld	h,0
-	ld	(hl++CurTks),0	; aktuelle phys. Spur f}r Drive: 0
+	ld	(hl+CurTks),0	; aktuelle phys. Spur f}r Drive: 0
     endif
 	jp	SetClk		; FDC-Taktrate wieder f}r I/O setzen
 
@@ -669,7 +669,7 @@ DskPo2:	srl	c		; Halbspur}berlauf: Spur /2, Head --> CY
 
 DskPoX:	ld	(PSect),a	; phys. Sektornummer speichern
 	ld	(EOT),a		; EOT wegen fehlendem Terminal Count
-	lda	hl,(ix--10)	; Zeiger auf Kopfnummern
+	lda	hl,(ix-10)	; Zeiger auf Kopfnummern
 	ld	a,(PDrive)
 	res	2,a		; falls Seite 0 : HEAD-Bit r}cksetzen
 	jr	nc,DskPoY	; Seite 0 : PDRIVE unver{ndert
@@ -763,7 +763,7 @@ Seek::	ld	(PTrack),a	; Spur in FDC-Befehl einsetzen
     else
 	ld	hl,(Drive)	; log. Laufwerk (0..3)
 	ld	h,0
-	lda	hl,(hl++CurTks)	; Zeiger auf phys. Spur dieses Drive
+	lda	hl,(hl+CurTks)	; Zeiger auf phys. Spur dieses Drive
     endif
 	cp	(hl)
 	jr	z,SetClk	; Spur stimmt schon: phys. Seek nicht n|tig
@@ -1142,7 +1142,7 @@ DPHD::	defw	TransD,0,0,0,0,0
 
 ; Sektor-Transformationstabellen f}r jedes Laufwerk
 
-TransA:	defb 	1,3,5,7,9,11,2,4,6,8,10,
+TransA:	defb 	1,3,5,7,9,11,2,4,6,8,10
 	defb	129,131,133,135,137,139,130,132,134,136,138
 	defs 	42		; Sector Translation Table: gesamt 64 Byte
 
@@ -1151,19 +1151,19 @@ TransA:	defb 	1,3,5,7,9,11,2,4,6,8,10,
 CSVA:	defs	(MaxDir+3)/4	; Checksum Vector
 ALVA:	defs	(MaxBlk+7)/4	; Allocation Vector (2 Bit)
 
-TransB:	defb 	1,3,5,7,9,11,2,4,6,8,10,
+TransB:	defb 	1,3,5,7,9,11,2,4,6,8,10
 	defb	129,131,133,135,137,139,130,132,134,136,138
 	defs 	42		; Sector Translation Table: gesamt 64 Byte
 CSVB:	defs	(MaxDir+3)/4	; Checksum Vector
 ALVB:	defs	(MaxBlk+7)/4	; Allocation Vector (2 Bit)
 
-TransC:	defb 	1,3,5,7,9,11,2,4,6,8,10,
+TransC:	defb 	1,3,5,7,9,11,2,4,6,8,10
 	defb	129,131,133,135,137,139,130,132,134,136,138
 	defs 	42		; Sector Translation Table: gesamt 64 Byte
 CSVC:	defs	(MaxDir+3)/4	; Checksum Vector
 ALVC:	defs	(MaxBlk+7)/4	; Allocation Vector (2 Bit)
 
-TransD:	defb 	1,3,5,7,9,11,2,4,6,8,10,
+TransD:	defb 	1,3,5,7,9,11,2,4,6,8,10
 	defb	129,131,133,135,137,139,130,132,134,136,138
 	defs 	42		; Sector Translation Table: gesamt 64 Byte
 CSVD:	defs	(MaxDir+3)/4	; Checksum Vector
@@ -1221,4 +1221,4 @@ DPBD:	defw	176		; 128 byte sec/trk
     endif
 
 	end
-
+

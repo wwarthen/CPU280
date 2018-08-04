@@ -54,5 +54,6 @@ inchar:	macro			;; ':' wegen PRE280 Interpretationsfehler
 	jr	z,exit		; nein: Exit mit CY gesetzt
 	in	a,(gripd)	; Zeichen lesen
 	or	a		; CY l|schen
-exit:	endm
-
+exit:
+	endm
+

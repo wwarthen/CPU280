@@ -98,18 +98,18 @@ ddisp:	ld	c,tab
 	and	7		; untere 3 Bit : Typ
 	add	a,a
 	exts	a
-	ldw	hl,(hl++t_tbl)
+	ldw	hl,(hl+t_tbl)
 	jr	z,dd2		; kein Laufwerk: nur Typ anzeigen!
 	cp	2*4
 	jr	z,dd1		; Typ 4: 8-Zoll-Laufwerke keine Spurzahl!
 	call	pmsg		; Typ ausgeben
-	ldw	hl,(sp++0)
+	ldw	hl,(sp+0)
 	bit	3,(hl)		; Spurenzahl-Bit
 	ld	hl,trk0
 	jr	z,dd1
 	ld	hl,trk1
 dd1:	call	pmsg		; Spuranzahl ausgeben
-	ldw	hl,(sp++0)
+	ldw	hl,(sp+0)
 	bit	4,(hl)		; Seitenzahl-Bit
 	ld	hl,sid0
 	jr	z,dd2
@@ -255,7 +255,7 @@ sd3:	call	pmsg		; Text ausgeben
 	inc	hl		; Zeiger auf Baudrate
 	ld	a,(hl)
 	multu	a,6		; 6 Zeichen pro Baudrate
-	lda	hl,(hl++baudt-6)
+	lda	hl,(hl+baudt-6)
 	call	pmsg		; Zahlenwert Baudrate ausgeben
 	ld	hl,baudm
 	jp	pmsg		; 'Baud' ausgeben und Ende
@@ -716,4 +716,4 @@ valnum	equ	$-drive0
 public	valnum
 
 	end
-
+
