@@ -137,7 +137,7 @@ V1.13 of 14 March 1995:
 - Fixed a bug in the auto-configuration code for MDrive directory size.
   (The bug showed only with more than 1 MB of RAM.)
 
-V1.2 of 8 March 2017:
+V1.20 of 8 March 2017:
 - Initial distribution of RetroBrew Computers system software based
   almost entirely on V1.13.  Prior signon retained.
 - Boot drive specified in setup is now pushed into SCB at load.  If

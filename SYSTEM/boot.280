@@ -295,7 +295,7 @@ SPSav:	defs	2		; Zwischenspeicher f}r SP bei SELMEM
 
 	dseg			; Text darf in Bank 0 sein
 
-SignOn:	defm	cr,lf,'CP/M-3 BIOS V1.2 RBC 8-Mar-2017',cr,lf
+SignOn:	defm	cr,lf,'CP/M-3 BIOS V1.20 RBC 8-Mar-2017',cr,lf
 	defm	'http://www.retrobrewcomputers.org',cr,lf
     if deutsch
 	defz	'beyogen auf CP/M-3 BIOS V1.13 TR 950314',cr,lf,lf

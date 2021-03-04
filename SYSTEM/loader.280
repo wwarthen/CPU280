@@ -858,13 +858,13 @@ GlobVar:defs	10		; 5 Word: I/O Redirection Vektoren f}r SCB
     if deutsch
 TstMsg:	defm	CR,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF
 	defm	LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF
-	defm	'CPU280 Kaltstart-Programm V1.2 RBC 8-Mar-2017',CR,LF
+	defm	'CPU280 Kaltstart-Programm V1.20 RBC 8-Mar-2017',CR,LF
 	defm	'http://www.retrobrewcomputers.org',CR,LF
 	defm	'beyogen auf Kaltstart-Programm V1.13 TR 950314',CR,LF
 	defz	'Dr}cke DEL f}r SETUP.',CR,LF
 FatMsg:	defz	CR,LF,'Fataler Fehler: nicht genug RAM'
 OkMsg:	defz	'k RAM ok'
-SignOn:	defm	CR,LF,LF,'CP/M-3 Loader V1.2 RBC 8-Mar-2017',CR,LF
+SignOn:	defm	CR,LF,LF,'CP/M-3 Loader V1.20 RBC 8-Mar-2017',CR,LF
 	defm	'beyogen auf CP/M-3 Loader V1.13',CR,LF
 	defm	'Lade System von '
 BootFrm:defm	'Laufwerk '
@@ -877,13 +877,13 @@ CcpErr:	defz	BEL,'Fehler: CCP nicht ladbar',CR,LF
     if english
 TstMsg:	defm	CR,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF
 	defm	LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF
-	defm	'CPU280 Boot Loader V1.2 RBC 8-Mar-2017',CR,LF
+	defm	'CPU280 Boot Loader V1.20 RBC 8-Mar-2017',CR,LF
 	defm	'http://www.retrobrewcomputers.org',CR,LF
 	defm	'based on Cold Loader Program V1.13 TR 950314',CR,LF
 	defz	'Press DEL to run SETUP.',CR,LF
 FatMsg:	defz	CR,LF,'Fatal Error: not enough RAM'
 OkMsg:	defz	'k RAM ok'
-SignOn:	defm	CR,LF,LF,'CP/M-3 Loader V1.2 RBC 8-Mar-2017',CR,LF
+SignOn:	defm	CR,LF,LF,'CP/M-3 Loader V1.20 RBC 8-Mar-2017',CR,LF
 	defm	'based on CP/M-3 Loader V1.13',CR,LF
 	defm	'Booting system file from '
 BootFrm:defm	'drive '
