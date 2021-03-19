@@ -1,4 +1,5 @@
 @echo off
 setlocal
 
-if exist *-Master.img del *-Master.img
+call Clean-CPM3
+call Clean-ZPM3

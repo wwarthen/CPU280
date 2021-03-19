@@ -7,7 +7,6 @@ copy CPM3-Master.txt CPM3-Files\u0\readme.txt
 copy ..\SYSTEM\ccp.com CPM3-Files\u0\
 copy ..\SYSTEM\cpm3.sys CPM3-Files\u0\
 
-
 copy ..\FORMAT\format-e.com CPM3-Files\u0\format.com
 copy ..\FORMAT\format.dat CPM3-Files\u0\
 
