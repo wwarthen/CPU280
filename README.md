@@ -22,10 +22,14 @@ The contents of the repository are organized into the following directories:
 | --- | --- |
 | **SYSTEM** | contains both the ROM firmware and the CP/M Plus OS adaptation |
 | **FORMAT** | contains a custom floppy disk formatting tool for the CPU280 |
+| **IDETEST** | contains a program to test the ECB-IDE companion board and IDE drives (German) |
 | **ZPM3** | contains the ZPM OS adaptation |
 | **ZCCP** | contains the ZCCP Command Processor that pairs with ZPM3 |
 | **Tools** | contains assorted programs used to build the software via Windows command line |
 | **Floppy** | contains scripts and files to create bootable floppy images |
+
+This is the zsm branch.  This branch is minimally updated to build using ZSM instead of the
+original PRE280 and SLR180 combination.
 
 ## Build Process
 
