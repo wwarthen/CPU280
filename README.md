@@ -22,10 +22,21 @@ The contents of the repository are organized into the following directories:
 | --- | --- |
 | **SYSTEM** | contains both the ROM firmware and the CP/M Plus OS adaptation |
 | **FORMAT** | contains a custom floppy disk formatting tool for the CPU280 |
+| **IDETEST** | contains a program to test the ECB-IDE companion board and IDE drives (German) |
 | **ZPM3** | contains the ZPM OS adaptation |
 | **ZCCP** | contains the ZCCP Command Processor that pairs with ZPM3 |
 | **Tools** | contains assorted programs used to build the software via Windows command line |
 | **Floppy** | contains scripts and files to create bootable floppy images |
+
+Note that there is a second branch in this repository named "zsm".  This branch uses the
+ZSM assembler instead of the PRE280 and SLR180 combination.  The ZSM assembler contains native
+support for Z280 instructions.  The product of the ZSM based build is believed to be
+functionally identical to the standard build.
+
+The source in the zsm branch has been modified as follows:
+
+1. Achive compatibility with the ZSM assembler
+2. Comments converted from German to English
 
 ## Build Process
 
@@ -44,7 +55,9 @@ To build the firmware and software, run the "Build" command in these directories
 
 1. **FORMAT:** Creates the format.com program.  This build utilizes Turbo Pascal and requires manual
 intervention -- see ReadMe.txt for more information.
-2. **SYSTEM:** Creates the ROM firmware for system booting and includes a ROM-based version of CP/M Plus.
+2. **IDETEST:** Creates the idetest.com program.  This build utilizes Turbo Pascal and requires manual
+intervention -- see ReadMe.txt for more information.
+4. **SYSTEM:** Creates the ROM firmware for system booting and includes a ROM-based version of CP/M Plus.
 The files system.odd and system.evn are produced in this step which are the odd and even portions
 of the ROM firmware.  This step also produces the cpm3.sys program for inclusion on floppy boot disks.
 Make sure to verify/edit the loader.mac and system.mac files before running "Build" here.
