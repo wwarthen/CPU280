@@ -415,3 +415,29 @@ diskdef wbw_fd120
   boottrk 2
   os 2.2
 end
+
+# CP/M-3 on 1.76MB floppies Tilmann Reh format on 3.5"
+# for the REH-Design CPU280
+diskdef reh-176
+  seclen 1024
+  tracks 160
+  sectrk 11
+  blocksize 4096
+  maxdir 256
+  skew 2
+  boottrk 0
+  os 3
+end
+
+# CP/M-3 on 1.44MB floppies Tilmann Reh format on 5.25"
+# for the REH-Design CPU280
+diskdef reh-144
+  seclen 1024
+  tracks 160
+  sectrk 9
+  blocksize 4096
+  maxdir 256
+  skew 2
+  boottrk 0
+  os 3
+end
