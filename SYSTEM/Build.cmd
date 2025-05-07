@@ -43,6 +43,10 @@ echo Assembling "setup" ...
 echo.
 zx zsm4 -=setup.280/u/l
 
+echo Assembline "ldos" ...
+echo.
+zx zsm4 -=ldos.180/u/l
+
 echo Generating (linking) "loader.cim" ...
 echo.
 zx link -loader.cim[L0,OC]=loader,lkernel,lintrpt,ldiskio,lhalbl,lhard,lchario,setup,ldos

@@ -1,0 +1,1218 @@
+	TITLE	'CP/M COLD LOADER DOS'
+	.Z80
+
+; **********************************************************
+; ** Eigener System-Lader. DOS in Anlehnung an CPMLDR von **
+; ** Digital Research. Z80-CODE ! Last Update 09.05.90    **
+; **********************************************************
+
+	EXTRN	BOOT,CONOUT,HOME,SELDSK,SETTRK	; aus LDR-BIOS
+	EXTRN	SECTRN,SETSEC,SETDMA,READ	; aus LDR-BIOS
+	PUBLIC	ENTRY,LDOS			; f}r LDR-BIOS
+
+CR	EQU	13
+LF	EQU	10
+BS	EQU	8
+TAB	EQU	9
+
+LOADER:	JP	BOOT		; BIOS: Init
+ENTRY:	LD	SP,HEADER	; Stackpointer f}r Lader
+	LD	C,13
+	CALL	LDOS		; DOS 13 : Reset Disk System
+	LD	C,9
+	LD	DE,SIGNON
+	CALL	LDOS		; Signon-Meldung ausgeben
+	LD	C,15
+	LD	DE,SYSFCB
+	CALL	LDOS		; DOS 15 : Open File
+	INC	A
+	JP	Z,MSGHLT	; Fehlermeldung Failed-To-Open
+	LD	DE,SECBUF
+	CALL	SDMA		; DMA auf Sektorpuffer
+	CALL	RDSEQ		; ersten Sektor lesen
+	LD	HL,SECBUF
+	LD	DE,HEADER
+	LD	BC,6
+	LDIR			; erste 6 Bytes nach HEADER aufw{rts
+	CALL	RDSEQ		; zweiten Sektor lesen (System-Meldung)
+	LD	C,9
+	LD	DE,SECBUF
+	CALL	LDOS		; TPA-Meldung aus zweitem Sektor
+	LD	A,(HEADER+1)	; Resident Length
+	LD	H,A
+	LD	A,(HEADER)	; Resident Top Page + 1
+	CALL	LOAD		; Residenten Teil laden
+	LD	A,(HEADER+3)	; Banked Length
+	OR	A
+	JR	Z,NOBNK		; kein gebankter Teil
+	LD	H,A
+	LD	A,(HEADER+2)	; Banked Top Page + 1
+	CALL	LOAD		; gebankten Teil laden
+NOBNK:	LD	SP,HEADER+4	; Stack bereit f}r Boot-Einsprung in BIOS
+	LD	A,(5DH)		; auf Default-FCB nach '$B' schauen
+	CP	'$'
+	RET	NZ		; ungleich : BOOT
+	LD	A,(5EH)
+	CP	'B'
+	RET	NZ		; ungleich : BOOT
+	RST	38H		; RESTART f}r Debugger
+
+; eigentlicher Lader. l{dt Teil des Systems in den Speicher.
+; TopPage+1 in A, Anzahl Pages in H.
+
+LOAD:	LD	D,A
+	LD	E,0		; Top-Adresse in DE
+	SLA	H		; H verdoppeln (-> Anzahl Sektoren)
+LDLOOP:	EX	DE,HL
+	LD	BC,-128
+	ADD	HL,BC
+	EX	DE,HL		; Zieladresse um 128 niedriger
+	PUSH	DE
+	PUSH	HL
+	CALL	SDMA		; DMA setzen
+	CALL	RDSEQ		; Sektor lesen
+	POP	HL
+	POP	DE
+	DEC	H
+	JR	NZ,LDLOOP	; alle angegebenen Sektoren lesen
+	RET
+
+SDMA:	LD	C,26
+	JP	LDOS		; DOS 26 : Set DMA Adress
+
+RDSEQ:	LD	C,20
+	LD	DE,SYSFCB
+	CALL	LDOS		; DOS 20 : Read Sequential
+	OR	A		; Fehler ?
+	RET	Z		; kein Fehler : RET
+	LD	HL,READERR
+	LD	DE,OPRD
+	LD	BC,4
+	LDIR			; READ in Fehlermeldung einsetzen
+MSGHLT:	LD	C,9
+	LD	DE,OPENERR
+	CALL	LDOS		; Fehlermeldung ausgeben
+	DI
+	HALT			; DI und HALT sicherheitshalber
+
+; FCB zum Lesen des System-Files.
+
+SYSFCB:	DEFM	0,'CPM3    SYS',0,0,0,0,0,0,0,0,0,0,0
+	DEFB	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+
+; Fehlermeldungen und Signon. CLRSCR durch Zeilenvorsch}be.
+
+OPENERR: DEFM	CR,LF,'LOADER error:  failed to '
+OPRD:	DEFM	'open CPM3.SYS',CR,LF,'$'
+READERR: DEFM	'read'			; wird in OPENERR eingesetzt
+
+SIGNON:	DEFM	CR,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF
+	DEFM	LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF,LF
+	DEFM	'CP/M-3 Loader V1.3  060390',CR,LF,'$'
+	DEFM	'060390',0,0,0,0	; Datum / Platz f}r Stack
+
+; Freiraum f}r die ersten 6 Byte des System-Files. Enth{lt Informationen
+; }ber Zieladresse/L{nge des Systems (resident bzw. gebankt) und 
+; Einsprungadresse.
+
+HEADER:	DEFS	6
+
+; Freiraum f}r erste 2 Sektoren des System-Files (Info, TPA-Meldung)
+
+SECBUF:	DEFS	128
+
+; Lader-DOS. Enth{lt die zum Laden des Systems notwendigen DOS-Funktionen.
+; Numerierung genau wie System-DOS.
+
+LDOS:	LD	(DPARAM),DE	; Parameter (DE) abspeichern
+	LD	A,C
+	CP	14		; ab DOS 14 : File-Funktionen
+	JR	C,X01A5
+	LD	(DFUNCT),A	; DOS-Funktionscode nach DFUNCT
+	XOR	A
+	LD	(X08B7),A
+	LD	A,(BITNR)
+	LD	(X08BE),A
+X01A5:	LD	A,E
+	LD	(X08BA),A
+	LD	HL,0
+	LD	(RETCOD),HL	; Return-Code mit 0 vorbelegen
+	LD	(X08E1),HL
+	LD	(USTACK),SP	; Stack von Aufruf retten
+	LD	SP,DSTACK	; innerhalb DOS eigener Stack
+	LD	HL,DOSRET
+	PUSH	HL		; Return-Adresse auf Stack
+	LD	A,C		; DOS-Funktionsnummer
+	CP	50
+	JR	NC,X01CA	; }ber 50 : 100 abziehen
+	LD	C,E		; sonst Parameter E nach C
+	JR	X01CF		; entspr. Funktion anspringen
+
+X01CA:	SBC	A,100		; 100 vom Funktionscode abziehen
+	JP	C,X069B		; X069B wenn in 50..100 (Ret. mit FF)
+X01CF:	LD	DE,(DPARAM)	; Parameter nach DE
+	CP	2
+	JP	Z,CONO		; 2 : Console Output
+	CP	9
+	JP	Z,STRING	; 9 : String Output
+	CP	13
+	JP	Z,RESDSK	; 13 : Reset Disk System
+	CP	14
+	JP	Z,SELDRV	; 14 : Select Disk
+	CP	15
+	JP	Z,OPENF		; 15 : Open File
+	CP	20
+	JP	Z,READSQ	; 20 : Read Sequential
+	CP	25
+	JP	Z,RETCUR	; 25 : Return Current Disk
+	CP	26
+	JP	Z,STDMA		; 26 : Set DMA Adress
+	RET			; sonst --> DOSRET
+
+USTACK:	DEFW	0		; Stackpointer vor DOS-Aufruf (gerettet)
+
+	DEFS	80
+DSTACK	EQU	$		; Stack innerhalb DOS
+
+;*******************************************************************
+;**                      DOS-ROUTINEN                             **
+;*******************************************************************
+
+CO:	PUSH	BC
+	CALL	CONOUT		; Zeichen ausgeben (BIOS)
+	POP	BC
+	LD	A,C		; Zeichen
+	LD	HL,COLUMN
+	CP	7FH		; DELETE ?
+	RET	Z		; dann nicht weiter bearbeiten
+	INC	(HL)		; Spalte +1
+	CP	' '
+	RET	NC		; wenn ASCII-Zeichen: RET
+	DEC	(HL)		; bei CTL-Code : Spalte wieder -1
+	LD	A,(HL)
+	OR	A
+	RET	Z		; wenn Spalte jetzt 0 : RET
+	LD	A,C
+	CP	BS
+	JR	NZ,X02B5	; bei BackSpace :
+	DEC	(HL)		; Spalte nochmal -1, RET
+	RET
+X02B5:	CP	LF
+	RET	NZ		; kein LF: RET
+	LD	(HL),0		; sonst Spalte = 0
+	RET
+
+CONO:	LD	A,C		; Zeichen zum ausgeben
+	CP	TAB
+	JR	NZ,CO		; kein TAB: direkt ausgeben
+TABEXP:	LD	C,' '
+	CALL	CO		; sonst SPACE ausgeben
+	LD	A,(COLUMN)
+	AND	7
+	JR	NZ,TABEXP	; bis Spalte n*8
+	RET
+
+STRNG:	LD	A,(BC)		; Zeichen aus String
+	CP	'$'		; Ende-Zeichen ?
+	RET	Z		; RET wenn Ende
+	INC	BC		; sonst Zeiger +1
+	PUSH	BC
+	LD	C,A		; Zeichen nach C
+	CALL	CONO		; ausgeben
+	POP	BC
+	JP	STRNG		; weiter im String
+
+STRING:	EX	DE,HL		; Argument nach HL
+	LD	C,L
+	LD	B,H		; und BC
+	JP	STRNG		; String ausgeben
+
+RET1:	LD	A,1		; RET mit Code 1
+RETA:	LD	(RETCOD),A	; Return-Code abspeichern
+	RET			; RET (--> DOSRET)
+
+DOSERR:	DEFM	CR,LF,'LDOS ERR: $'
+SELCT:	DEFM	'Select$'
+PERM:	DEFM	'Perm.$'
+
+RETCOD:	DEFW	0
+
+SELERR:	LD	BC,DOSERR
+	CALL	STRNG		; Meldung BDOS-Err
+	LD	BC,SELCT
+	JP	STRHLT		; Meldung Select, HALT
+
+PRMERR:	LD	BC,DOSERR
+	CALL	STRNG		; Meldung BDOS-Err
+	LD	BC,PERM
+STRHLT:	CALL	STRNG		; Meldung Perm.
+	DI
+	HALT			; HALT sicherheitshalber
+
+; Arithmetik-Operationen
+
+SUB24:	LD	A,E		; 24-Bit-Subtraktion BDE:=BDE-HL
+	SUB	L
+	LD	E,A
+	LD	A,D
+	SBC	A,H
+	LD	D,A
+	RET	NC
+	DEC	B
+	RET
+
+ADD24:	EX	DE,HL		; 24-Bit-Addition BDE:=BDE+HL
+	ADD	HL,DE
+	EX	DE,HL
+	RET	NC
+	INC	B
+	RET
+
+SHL24:	INC	C		; 24-Bit-Shift AHL:=AHL shl C
+X0338:	DEC	C
+	RET	Z
+	ADD	HL,HL
+	ADC	A,A
+	JR	X0338
+
+COMPC:	LD	A,(DE)		; Compare (HL)-(DE), C Bytes
+	CP	(HL)
+	RET	NZ
+	INC	HL
+	INC	DE
+	DEC	C
+	RET	Z
+	JR	COMPC
+
+; Laufwerk selektieren (Angabe in D), alle Parameterwerte werden gef}llt.
+
+SELD:	LD	C,D		; Laufwerk von D nach C
+	CALL	SELDSK		; BIOS: SELECT DISK
+	LD	A,H
+	OR	L
+	RET	Z		; DPH-Adresse=0 aus BIOS : Fehler
+	LD	E,(HL)
+	INC	HL
+	LD	D,(HL)		; TRANS-Adresse in DE
+	INC	HL
+	INC	HL
+	INC	HL
+	LD	(DPH4),HL	; Adresse von DPH+4 nach DPH4 (reserved)
+	INC	HL
+	INC	HL
+	LD	(DPH6),HL	; Adresse von DPH+6 nach DPH6 (reserved)
+	INC	HL
+	INC	HL
+	INC	HL
+	INC	HL
+	INC	HL
+	INC	HL		; Adresse von DPH+12 in HL (DPB)
+	LD	(TRANS),DE	; TRANS abspeichern
+	LD	DE,DPB
+	LD	BC,13
+	LDIR			; Rest-DPH nach 'DPB' kopieren
+	LD	HL,(DPB)	; Adresse des DPB
+	LD	DE,SPT
+	LD	BC,17
+	LDIR			; Parameterblock kopieren
+	LD	A,(DSM+1)	; High-Byte von DSM nach A
+	LD	HL,EXFLAG
+	LD	(HL),-1		; EXFLAG mit -1 vorbelegen
+	OR	A
+	SCF
+	RET	Z		; wenn DSM<256, EXFLAG=-1, CY gesetzt
+	LD	(HL),0		; sonst EXFLAG=0
+	RET			; Return mit Carry
+
+; Laufwerk auf HOME fahren. DPH-Eintr{ge (scratch) werden gel|scht
+
+HOMED:	CALL	HOME		; BIOS HOME ausf}hren
+	XOR	A
+	LD	HL,(DPH4)
+	LD	(HL),A
+	INC	HL
+	LD	(HL),A		; DPH+4/5 r}cksetzen
+	LD	HL,(DPH6)
+	LD	(HL),A
+	INC	HL
+	LD	(HL),A
+	INC	HL
+	LD	(HL),A		; DPH+6/7/8 r}cksetzen
+	RET
+
+GETREC:	LD	HL,RECNR
+	LD	E,(HL)
+	INC	HL
+	LD	D,(HL)
+	INC	HL
+	LD	B,(HL)		; BDE aus RECNR laden
+	RET
+
+READD:	CALL	GETREC		; RECNR nach BDE
+	CALL	READ		; BIOS: Phys. Sektor lesen
+	OR	A
+	RET	Z		; fehlerfrei: RET
+	LD	C,A		; sonst Fehlercode nach C
+	CP	3
+	JP	C,PRMERR
+	LD	C,1		; oberhalb von 2 : Code auf 1 setzen
+	JP	PRMERR		; Error-Return
+
+X03C6:	LD	HL,(X08E3)
+	LD	C,2
+	CALL	SHR16		; durch 4 teilen
+	LD	B,0
+	EX	DE,HL		; X08E3/4 nach BDE (B=0)
+	LD	HL,RECNR
+	LD	(HL),E
+	INC	HL
+	LD	(HL),D
+	INC	HL
+	LD	(HL),B		; BDE nach RECNR abspeichern
+	RET
+
+POSDSK:	LD	HL,(DPH4)
+	LD	C,(HL)
+	INC	HL
+	LD	B,(HL)
+	PUSH	BC		; Wert aus DPH4 nach BC (Track ?)
+	LD	HL,(DPH6)
+	LD	E,(HL)
+	INC	HL
+	LD	D,(HL)
+	INC	HL
+	LD	B,(HL)		; Wert aus DPH6 nach BDE (abs. Sektor)
+	LD	HL,(RECNR)
+	LD	A,(RECNR+2)	; Vergleich mit RECNR
+	LD	C,A
+X03F0:	LD	A,L
+	SUB	E
+	LD	A,H
+	SBC	A,D
+	LD	A,C
+	SBC	A,B
+	PUSH	HL
+	JP	NC,X0407	; Ende wenn absSect<=RECNR
+	LD	HL,(SPT)
+	CALL	SUB24		; SPT vom abs. Sektor abziehen
+	POP	HL
+	EX	(SP),HL
+	DEC	HL		; Wert auf Stack (DPH4) erniedrigen
+	EX	(SP),HL
+	JP	X03F0		; weiter bis absSect<=RECNR
+
+X0407:	LD	HL,(SPT)
+	CALL	ADD24		; letzte Subtraktion wieder r}ckg{ngig
+	POP	HL		; untere 16 Bits von RECNR
+	LD	A,L
+	SUB	E
+	LD	A,H
+	SBC	A,D
+	LD	A,C
+	SBC	A,B		; RECNR-absSect
+	JP	C,X041E		; wenn RECNR<absSect: weiter
+	EX	(SP),HL
+	INC	HL		; sonst Wert auf Stack (DPH4) wieder erh|hen
+	EX	(SP),HL
+	PUSH	HL
+	JP	X0407		; und weiter
+
+X041E:	EX	(SP),HL
+	PUSH	HL		; RECNR }ber DPH4 auf Stack
+	LD	HL,(SPT)
+	CALL	SUB24		; letzte Addition r}ckg{ngig machen
+	POP	HL		; (DPH4)
+	PUSH	DE
+	PUSH	BC
+	PUSH	HL
+	EX	DE,HL		; (DPH4) nach DE
+	LD	HL,(OFF)
+	ADD	HL,DE		; Offsetspuren addieren
+	LD	B,H
+	LD	C,L		; nach BC
+	LD	(PHTRK),HL	; abspeichern
+	CALL	SETTRK		; BIOS: Spur setzen
+	POP	DE
+	LD	HL,(DPH4)
+	LD	(HL),E
+	INC	HL
+	LD	(HL),D		; neues DPH4 abspeichern
+	POP	BC
+	POP	DE
+	LD	HL,(DPH6)
+	LD	(HL),E
+	INC	HL
+	LD	(HL),D
+	INC	HL
+	LD	(HL),B		; BDE nach DPH6 abspeichern (absSect)
+	POP	BC
+	LD	A,C
+	SUB	E
+	LD	L,A
+	LD	A,B
+	SBC	A,D
+	LD	H,A
+	CALL	SECMOD		; phys. Sektorgr|~e ber}cksichtigen
+	LD	B,H
+	LD	C,L		; HL nach BC (log. Sektor)
+	LD	HL,(TRANS)
+	EX	DE,HL		; TRANS nach DE (Tabellenadresse)
+	CALL	SECTRN		; BIOS: Translate Sector
+	LD	C,L
+	LD	B,H		; Ergebnis nach BC
+	LD	(PHSEC),HL	; und abspeichern
+	CALL	SETSEC		; BIOS: Set Sector
+	LD	HL,(DMAADR)
+	LD	C,L
+	LD	B,H		; DMA-Adresse nach BC
+	JP	SETDMA		; BIOS: Set DMA Adress
+
+SECMOD:	LD	A,(PSH)
+	LD	C,A		; Phys. Sector Shift nach C
+	JP	SHR16		; Dividieren ergibt phys. Sektor
+
+X0472:	LD	HL,BSH
+	LD	C,(HL)		; Blockshift nach C
+	LD	A,(CURREC)
+X0479:	OR	A
+	RRA
+	DEC	C
+	JP	NZ,X0479	; A = CURREC shr BSH = Current Block
+	LD	B,A		; nach B
+	LD	A,8
+	SUB	(HL)		; 8 - BSH
+	LD	C,A		; nach C
+	LD	A,(CUREXT)
+X0487:	DEC	C
+	JP	Z,X0490
+	OR	A
+	RLA			; entsprechend oft CUREXT verdoppeln
+	JP	X0487
+X0490:	ADD	A,B		; CurrentBlock dazu addieren
+	RET			; Ergebnis: Block 0..15 im FCB
+
+GETBKS:	LD	HL,(DPARAM)	; FCB-Adresse
+	LD	DE,16
+	ADD	HL,DE		; +16 = Adresse der BlockTabelle im FCB
+	RET
+
+GTBLOK:	CALL	GETBKS		; Adresse der BlockTabelle
+	ADD	HL,BC		; +BC = Zeiger auf gew{hlten Block
+	LD	A,(EXFLAG)
+	OR	A
+	JP	Z,X04A8		; EXFLAG=0 : 16-Bit-Blocknummer
+	LD	L,(HL)		; 8-Bit-Blocknummer nach L
+	LD	H,B		; H=B=0
+	RET
+X04A8:	ADD	HL,BC		; sonst Zeiger auf 16-Bit-Blocknummer
+	LD	A,(HL)
+	INC	HL
+	LD	H,(HL)
+	LD	L,A		; Wert aus FCB nach HL
+	RET
+
+X04AE:	CALL	X0472		; Blocknummer im FCB (0..15)
+	LD	(FCBBLK),A
+	LD	C,A
+	LD	B,0		; nach BC
+	CALL	GTBLOK		; Blocknummer aus FCB holen
+	LD	(RECNR),HL	; nach RECNR
+	LD	A,L
+	OR	H		; Zero-Flag setzen bei Datei-Ende
+	RET
+
+X04C0:	LD	A,(BSH)		; Block Shift Factor
+	LD	C,A
+	LD	HL,(RECNR)	; aktuelle Block-Nummer
+	XOR	A
+	CALL	SHL24		; entspr. BSH links schieben
+	LD	(RECNR),HL
+	LD	(RECNR+2),A	; 24-Bit-Record-Nummer (Blockanfang)
+	LD	(X08C6),HL
+	LD	A,(BLM)
+	LD	C,A		; BLM nach C
+	LD	A,(CURREC)
+	AND	C		; -> Record innerhalb Block
+	LD	B,A		; nach B
+	LD	(INBLOK),A	; und INBLOK
+	LD	HL,RECNR
+	OR	(HL)		; in 24-Bit-record-nummer einsetzen
+	LD	(HL),A
+	RET
+
+GETEXT:	LD	HL,(DPARAM)	; Adresse des FCB
+	LD	DE,12
+	ADD	HL,DE		; +12 = Adresse 'Current Extent' (0..31)
+	RET
+
+GETRC:	LD	HL,(DPARAM)	; Adresse des FCB
+	LD	DE,15
+	ADD	HL,DE		; +15 = Adresse 'Record Count' (in EXT)
+	RET
+
+GETCR:	CALL	GETRC		; Adresse RC in HL
+	EX	DE,HL		; nach DE
+	LD	HL,17
+	ADD	HL,DE		; +17 = Adresse 'Current Rexord to R/W'
+	RET			; RET mit CR in HL und RC in DE
+
+X04FF:	CALL	GETCR
+	LD	A,(HL)		; Current Record to R/W
+	LD	(CURREC),A
+	EX	DE,HL
+	LD	A,(HL)		; Record Count (in akt. EXT)
+	LD	(RECCNT),A
+	CALL	GETEXT
+	LD	A,(EXM)
+	AND	(HL)
+	LD	(CUREXT),A	; Extent maskiert mit EXM
+	RET
+
+X0516:	CALL	GETCR		
+	LD	A,(CURREC)
+	INC	A
+	LD	(HL),A		; CURREC+1 nach Current Record im FCB
+	EX	DE,HL
+	LD	A,(RECCNT)
+	LD	(HL),A		; Record Count im FCB aktualisieren
+	RET
+
+; HL um C Stellen nach rechts schieben (arithmetisch)
+
+SHR16:	INC	C
+X0527:	DEC	C
+	RET	Z
+	SRA	H
+	RR	L
+	JP	X0527
+
+; HL um C Stellen nach links schieben (arithmetisch)
+
+SHL16:	INC	C
+X0534:	DEC	C
+	RET	Z
+	ADD	HL,HL
+	JP	X0534
+
+; Einzel-Bit in BC setzen, Bit-Nummer in BITNR, Ergebnis in HL
+
+X053A:	LD	A,(BITNR)
+	PUSH	BC
+	LD	C,A
+	LD	HL,1
+	CALL	SHL16
+	POP	BC
+	LD	A,C
+	OR	L
+	LD	L,A
+	LD	A,B
+	OR	H
+	LD	H,A
+	RET
+
+; Einzel-Bit in HL testen, Bitnummer in BITNR
+
+X054D:	LD	A,(BITNR)
+	LD	C,A
+	CALL	SHR16
+	LD	A,L
+	AND	1
+	RET
+
+; HL:=(X088C)+(X08C9)
+
+X0558:	LD	HL,(X088C)
+	LD	A,(X08C9)
+	ADD	A,L
+	LD	L,A
+	RET	NC
+	INC	H
+	RET
+
+X0563:	CALL	GETEXT
+	LD	A,(HL)
+	AND	1FH		; Current Extent im FCB auf 0..31 begrenzen
+	LD	(HL),A
+	RET
+
+; HL:=DE-HL
+
+SUB16:	LD	A,E
+	SUB	L
+	LD	L,A
+	LD	A,D
+	SBC	A,H
+	LD	H,A
+	RET
+
+; HL aus (HL+10) laden
+
+INDI10:	PUSH	DE
+	LD	DE,10
+	ADD	HL,DE
+	LD	E,(HL)
+	INC	HL
+	LD	D,(HL)
+	EX	DE,HL
+	POP	DE
+	RET
+
+X057D:	CALL	X03C6
+	LD	A,(PHM)
+	OR	A
+	JP	Z,X058F
+	LD	A,3
+	CALL	X08E8
+	JP	X059B
+X058F:	CALL	X05A1
+	LD	(X088C),HL
+	CALL	POSDSK
+	CALL	READD
+X059B:	LD	HL,(X08DC)
+	JP	X05A7
+
+X05A1:	LD	HL,(DIRBCB)
+	CALL	INDI10
+X05A7:	LD	(DMAADR),HL
+	RET
+
+X05AB:	LD	HL,X08E3
+	LD	A,(HL)
+	INC	HL
+	CP	(HL)
+	RET	NZ
+	INC	A
+	RET
+
+X05B4:	LD	HL,-1
+	LD	(X08E3),HL
+	RET
+
+X05BB:	LD	HL,(DRM)
+	EX	DE,HL
+	LD	HL,(X08E3)
+	INC	HL
+	LD	(X08E3),HL
+	CALL	SUB16
+	JP	C,X05B4
+	LD	A,(X08E3)
+	AND	3
+	ADD	A,A
+	ADD	A,A
+	ADD	A,A
+	ADD	A,A
+	ADD	A,A
+	LD	(X08C9),A
+	RET	NZ
+	PUSH	BC
+	CALL	X057D
+	POP	BC
+	RET
+
+X05E3:	PUSH	BC
+	PUSH	AF
+	LD	A,(EXM)
+	CPL
+	LD	B,A
+	LD	A,C
+	AND	B
+	LD	C,A
+	POP	AF
+	AND	B
+	SUB	C
+	AND	1FH
+	POP	BC
+	RET
+
+X05F4:	CALL	GETCR
+	LD	C,16
+	LD	B,C
+	INC	C
+	PUSH	BC
+X05FC:	POP	BC
+	DEC	C
+	XOR	A
+X05FF:	DEC	HL
+	DEC	B
+	CP	(HL)
+	JP	NZ,X0609
+	DEC	C
+	JP	NZ,X05FF
+X0609:	LD	A,C
+	LD	(FCBBLK),A
+	LD	A,(EXFLAG)
+	OR	A
+	LD	A,B
+	JP	NZ,X0616
+	RRA
+X0616:	PUSH	BC
+	PUSH	HL
+	LD	L,A
+	LD	H,0
+	LD	A,(BSH)
+	LD	D,A
+	LD	A,7
+	SUB	D
+	LD	C,A
+	CALL	SHR16
+	LD	B,L
+	LD	A,(EXM)
+	CP	B
+	POP	HL
+	JP	C,X05FC
+	CALL	GETEXT
+	LD	C,(HL)
+	CPL
+	AND	1FH
+	AND	C
+	OR	B
+	POP	BC
+	RET
+
+X063A:	LD	HL,(DPARAM)
+	LD	(X08E5),HL
+	LD	A,C
+	LD	(X08E7),A
+	CALL	X05B4
+	CALL	HOMED
+X064A:	LD	C,0
+	CALL	X05BB
+	CALL	X05AB
+	JP	Z,X069B
+	LD	HL,(X08E5)
+	EX	DE,HL
+	CALL	X0558
+	LD	A,(X08E7)
+	LD	C,A
+	LD	B,0
+	LD	A,(HL)
+	CP	0E5H		; leerer Eintrag ?
+	JP	Z,X064A
+X0668:	LD	A,C
+	OR	A
+	JP	Z,X0694
+	LD	A,B
+	CP	13
+	JP	Z,X068D
+	CP	12
+	JP	Z,X0682
+	LD	A,(DE)
+	SUB	(HL)
+	AND	7FH
+	JP	NZ,X064A
+	JP	X068D
+
+X0682:	LD	A,(DE)
+	PUSH	BC
+	LD	C,(HL)
+	CALL	X05E3
+	POP	BC
+	OR	A
+	JP	NZ,X064A
+X068D:	INC	DE
+	INC	HL
+	INC	B
+	DEC	C
+	JP	X0668
+
+X0694:	XOR	A
+	LD	(RETCOD),A
+	LD	B,A
+	INC	B
+	RET
+
+X069B:	LD	A,-1
+	LD	B,A
+	INC	B
+	JP	RETA
+
+X06A2:	LD	C,15
+	CALL	X063A
+	RET	Z
+X06A8:	CALL	GETEXT
+	LD	A,(HL)
+	PUSH	AF
+	CALL	X0558
+	LD	DE,(DPARAM)
+	LD	BC,32
+	LDIR
+	CALL	X05F4
+	LD	C,A
+	POP	AF
+	LD	(HL),A
+X06BF:	LD	B,0
+	EX	DE,HL
+	LD	HL,3
+	ADD	HL,DE
+	LD	A,(DE)
+	SUB	C
+	JP	Z,X06D8
+	LD	A,B
+	JP	NC,X06D2
+	LD	A,80H
+	LD	B,(HL)
+X06D2:	LD	(HL),A
+	LD	A,B
+	LD	(X08BC),A
+	RET
+
+X06D8:	LD	(X08BC),A
+	LD	A,(HL)
+	OR	A
+	RET	NZ
+	LD	A,(FCBBLK)
+	OR	A
+	RET	Z
+	LD	A,(DFUNCT)
+	CP	15
+	RET	Z
+	LD	(HL),80H
+	RET
+
+X06EC:	PUSH	HL
+	LD	A,(X08BC)
+	OR	A
+	JP	Z,X06FD
+	LD	DE,3
+	ADD	HL,DE
+	LD	(HL),A
+	XOR	A
+	LD	(X08BC),A
+X06FD:	POP	HL
+	RET
+
+X06FF:	CALL	GETEXT
+	LD	A,(HL)
+	LD	C,A
+	INC	C
+	CALL	X05E3
+	JP	Z,X0721
+	LD	A,1FH
+	AND	C
+	LD	(HL),A
+	LD	C,15
+	CALL	X063A
+	CALL	X06A8
+X0717:	CALL	X04FF
+	XOR	A
+	LD	(CURREC),A
+	JP	RETA
+
+X0721:	INC	(HL)
+	CALL	X05F4
+	LD	C,A
+	CP	(HL)
+	JP	NC,X072E
+	DEC	(HL)
+	JP	RET1
+
+X072E:	CALL	X06EC
+	CALL	X06BF
+	JP	X0717
+
+X0737:	CALL	X04FF
+	LD	A,(CURREC)
+	LD	HL,RECCNT
+	CP	(HL)
+	JP	C,X0753
+	CP	80H
+	JP	NZ,RET1
+	CALL	X06FF
+	LD	A,(RETCOD)
+	OR	A
+	JP	NZ,RET1
+X0753:	CALL	X04AE
+	JP	Z,RET1
+	CALL	X04C0
+	LD	A,(PHM)
+	OR	A
+	JP	NZ,X08D2
+	CALL	X059B
+	CALL	POSDSK
+	CALL	READD
+	JP	X0516
+
+X076F:	LD	A,(BITNR)
+	INC	A
+	JP	Z,SELERR
+	DEC	A
+	LD	HL,X08C2
+	CP	(HL)
+	RET	Z
+	LD	(HL),A
+	LD	D,A
+	LD	HL,(X0888)
+	CALL	X054D
+	LD	E,A
+	PUSH	DE
+	CALL	SELD
+	POP	HL
+	JP	NC,SELERR
+	DEC	L
+	RET	Z
+	LD	HL,(X0888)
+	LD	C,L
+	LD	B,H
+	CALL	X053A
+	LD	(X0888),HL
+	RET
+
+X079B:	LD	A,(X08BA)
+	LD	(BITNR),A
+	RET
+
+X07A2:	XOR	A
+	LD	(X08C8),A
+	JP	X07D2
+
+X07A9:	LD	A,80H
+	LD	B,A
+	DEC	A
+	LD	C,A
+	LD	HL,(DPARAM)
+	LD	DE,7
+	EX	DE,HL
+	ADD	HL,DE
+	LD	A,(HL)
+	AND	B
+	LD	A,(HL)
+	AND	C
+	LD	(HL),A
+	INC	HL
+	LD	A,(HL)
+	AND	B
+	LD	(X08C8),A
+	LD	A,(HL)
+	AND	C
+	LD	(HL),A
+	CALL	X0563
+	CALL	GETRC
+	LD	A,(HL)
+	AND	B
+	JP	Z,X07D2
+	LD	A,(HL)
+	AND	C
+	LD	(HL),B
+X07D2:	LD	(X08BC),A
+	LD	HL,0
+	LD	(X08CA),HL
+	LD	A,0FFH
+	LD	(X08E1),A
+	LD	HL,(DPARAM)
+	LD	A,(HL)
+	AND	1FH
+	DEC	A
+	LD	(X08BA),A
+	CP	0FFH
+	JP	Z,X07F6
+	LD	A,(HL)
+	LD	(X08CA),A
+	CALL	X079B
+X07F6:	CALL	X076F
+	LD	A,0
+	LD	HL,(DPARAM)
+	LD	(HL),A
+	RET
+
+RESDSK:	LD	HL,0
+	LD	(X0888),HL
+	XOR	A
+	LD	(BITNR),A
+	DEC	A
+	LD	(X08C2),A
+	LD	HL,128
+	LD	(X08DC),HL
+	JP	X059B
+
+SELDRV:	CALL	X079B
+	JP	X076F
+
+OPENF:	CALL	X07A2
+	CALL	X06A2
+	CALL	X0827
+	RET
+
+X0827:	CALL	X05AB
+	RET	Z
+	CALL	GETCR
+	LD	A,(HL)
+	INC	A
+	JP	NZ,X0837
+	DEC	DE
+	DEC	DE
+	LD	A,(DE)
+	LD	(HL),A
+X0837:	POP	HL
+	LD	C,40H
+	RET
+
+READSQ:	CALL	X07A9
+	JP	X0737
+
+RETCUR:	LD	A,(BITNR)
+	JP	RETA
+
+STDMA:	EX	DE,HL
+	LD	(X08DC),HL
+	JP	X059B
+
+DOSRET:	LD	A,(DFUNCT)
+	CP	15
+	JP	C,X087E
+	LD	A,(X08BE)
+	LD	(BITNR),A
+	LD	A,(X08E1)
+	OR	A
+	JP	Z,X087E
+	LD	HL,(DPARAM)
+	LD	(HL),0
+	LD	A,(X08CA)
+	OR	A
+	JP	Z,X0870
+	LD	(HL),A
+X0870:	INC	HL
+	LD	A,(X08C8)
+	OR	(HL)
+	LD	(HL),A
+	CALL	GETRC
+	LD	A,(X08BC)
+	OR	(HL)
+	LD	(HL),A
+X087E:	LD	HL,(USTACK)
+	LD	SP,HL		; Stackpointer wiederherstellen
+	LD	HL,(RETCOD)
+	LD	A,L
+	LD	B,H		; Ergebnis in BA und HL
+	RET
+
+X0888:	DEFW	0
+DMAADR:	DEFW	0		; aktuelle DMA-Adresse
+X088C:	DEFW	0,0
+DPH4:	DEFW	0		; Zeiger auf DPH+4
+DPH6:	DEFW	0,0,0		; Zeiger auf DPH+6
+
+; Kopie der letzten 13 Byte des DPH
+
+DPB:	DEFW	0
+	DEFS	4
+DIRBCB:	DEFW	0
+DTABCB:	DEFW	0
+	DEFS	3
+
+; Kopie des DPB (17 Byte)
+
+SPT:	DEFW	0		; Sectors per Track
+BSH:	DEFB	0		; Block Shift
+BLM:	DEFB	0		; Block Mask
+EXM:	DEFB	0		; Extent Mask
+DSM:	DEFW	0		; Storage Capacity (Blocks)
+DRM:	DEFW	0,0,0		; Directory Size (Entries)
+OFF:	DEFW	0		; Offset Tracks
+PSH:	DEFB	0		; Phys. Sector Shift
+PHM:	DEFB	0		; Phys. Sector Mask
+
+INBLOK:	DEFB	0		; Recordnummer innerhalb des Blocks
+X08B7:	DEFB	0
+TRANS:	DEFW	0		; Adresse der TRANS-Tabelle im BIOS
+X08BA:	DEFB	0
+FCBBLK:	DEFB	0		; Position des Blockzeigers im FCB (0..15)
+X08BC:	DEFB	0
+EXFLAG:	DEFB	0		; Extent Flag. -1 bei DSM<256, 0 bei DSM>=256
+X08BE:	DEFB	0
+RECCNT:	DEFB	0		; Record Count aus FCB
+CUREXT:	DEFB	0		; Current Extent aus FCB
+CURREC:	DEFB	0		; Current Record aus FCB
+X08C2:	DEFB	0FFH
+RECNR:	DEFS	3		; 24 Bit Record-Nummer / auch als Blocknr.
+X08C6:	DEFW	0
+X08C8:	DEFB	0
+X08C9:	DEFB	0
+X08CA:	DEFB	0
+X08CB:	DEFB	0
+X08CC:	DEFW	0
+PHTRK:	DEFW	0		; Phys. Spur
+PHSEC:	DEFW	0		; Phys. Sektor
+
+COLUMN:	DEFB	0		; aktuelle Spalte der Console
+ENDCHR:	DEFB	'$'		; Abschlu~zeichen f}r Strings
+X08DC:	DEFW	128
+BITNR:	DEFB	0		; Bitnummer f}r Maskenoperationen (0..15)
+DPARAM:	DEFW	0		; Parameter des DOS-Aufrufs (DE-Register)
+X08E1:	DEFB	0
+DFUNCT:	DEFB	0		; aktive DOS-Funktion (C-Register)
+X08E3:	DEFW	0
+X08E5:	DEFW	0
+X08E7:	DEFB	0
+
+X08E8:	LD	HL,(DIRBCB)
+	JR	X08F1
+
+X08D2:	LD	A,1
+	CALL	X08EE
+	JP	X0516
+
+X08EE:	LD	HL,(DTABCB)
+X08F1:	PUSH	AF
+	LD	A,(PHM)
+	LD	B,A
+	CPL
+	LD	C,A
+	LD	A,(RECNR)
+	LD	E,A
+	AND	B
+	LD	(X08CB),A
+	LD	A,E
+	AND	C
+	LD	(RECNR),A
+	LD	(X08CC),HL
+	CALL	INDI10
+	LD	(DMAADR),HL
+	LD	HL,(X08CC)
+	LD	DE,X08C2
+	LD	C,4
+	POP	AF
+	PUSH	AF
+	CP	4
+	JR	NC,X091C
+	CALL	COMPC
+	JR	Z,X092C
+	XOR	A
+X091C:	LD	HL,(X08CC)
+	LD	DE,4
+	ADD	HL,DE
+	CALL	POSDSK
+	CALL	READD
+	LD	HL,(X08CC)
+	LD	DE,6
+	ADD	HL,DE
+	EX	DE,HL
+	LD	HL,PHTRK
+	LD	BC,4
+	LDIR
+	LD	DE,(X08CC)
+	LD	HL,X08C2
+	LD	BC,4
+	LDIR
+	EX	DE,HL
+	LD	(HL),0
+X092C:	LD	A,(X08CB)
+	INC	A
+	LD	DE,128
+	LD	HL,-128
+X0936:	ADD	HL,DE
+	DEC	A
+	JR	NZ,X0936
+	LD	DE,(DMAADR)
+	ADD	HL,DE
+	POP	AF
+	CP	3
+	JP	NZ,X094A
+	LD	(X088C),HL
+	RET
+X094A:	LD	DE,(X08DC)
+	LD	BC,128
+	LDIR
+	RET
+
+	END
+

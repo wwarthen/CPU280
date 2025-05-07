@@ -26,6 +26,9 @@ zxcc $ZSM -"lchario,lchario=chario.280/u"
 echo "Assembling setup..."
 zxcc $ZSM -"=setup.280/l/u"
 
+echo "Assembling ldos..."
+zxcc $ZSM -"=ldos.180/l/u"
+
 echo "Generating (linking) loader.cim..."
 zxcc drlink "loader.cim=loader,lkernel,lintrpt,ldiskio,lhalbl,lhard,lchario,setup,ldos[OC,L0]"
 
