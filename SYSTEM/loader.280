@@ -348,8 +348,9 @@ setup1:	inc	c		; Bump I/O-Address
 BootS1:	call	hmenu		; Main Menu for Setup
 	iopage	boardp		; I/O-Page for Setup-NVRAM
 	ld	hl,Drive0
+	ld	bc,ValNum
+	ld	b,c		; Number of values to be saved
 	ld	c,s$drv0-1
-	ld	b,ValNum	; Number of values to be saved
 exit1:	inc	c		; Bump I/O-Address
 	outi			; Save 1 Byte
 	jr	nz,exit1	; continue for all Setup-RAM values
