@@ -4,8 +4,8 @@ program Disketten_Format_Manager;          (* 010707 Tilmann Reh *)
 
 (* Globale und Hauptprogramm-Variablen *)
 
-const Sign1             = 'FORMAT-MANAGER V1.04';
-      Sign2             = 'Tilmann Reh 06.07.08';
+const Sign1             = 'FORMAT-MANAGER V1.05';
+      Sign2             = 'Tilmann Reh 30.01.25';
       Ende              : boolean = false;
       ResetVector       : integer = 0;
 

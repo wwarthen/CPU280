@@ -2,7 +2,7 @@
 (*  FORMAT-E.MSG: Texte und Meldungen in englisch                   *)
 (********************************************************************)
 
-(* 060708 Tilmann Reh *)
+(* 20250125 Tilmann Reh *)
 
 const
 
@@ -68,6 +68,7 @@ _LogSkew      = 'logical skew ';
 _BlockSize    = 'Block size ';
 _DirEntries   = ' Directory entries'^M^J;
 _Reserved     = ' reserved track(s)'^M^J;
+_PrevNextForm = 'Navigate with +/-, others Quit ';
 
 (* fuer FORMAT.IN3 (Editieren) *)
 
@@ -131,4 +132,4 @@ _FormatQ      = 'Formatting: Are you sure';
 _FTrack       = ^M'Track ';
 _ErrTrks      = ^M'Problems on track(s)';
 _MoreDisks    = ^M^J'format another disk';
-
+

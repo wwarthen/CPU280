@@ -2,7 +2,7 @@
 (*  FORMAT.IN2 : Gesamtliste drucken, Uebersicht, Daten anzeigen    *)
 (********************************************************************)
 
-(* 060708 Tilmann Reh *)
+(* 20250130 Tilmann Reh *)
 
 (* Erstellen einer sortierten Index/Namensliste fuer Ausgaben *)
 
@@ -194,20 +194,32 @@ begin
 
 procedure Show(CmdLine:boolean);
 begin
-  if CmdLine then write(^M^J,_FormName,AktForm.Name)
-  else InputFormatNumber;
-  with AktForm do begin
-    DisplayPhysicalFormat(AktForm,true);
-    if boolean(Invers) then write(_Invert);
-    if boolean(Multi) then write(_Multi);
-    if TTrans>0 then writeln(_TrkTrans,TTrans);
-    if not CmdLine then writeln;
-    if Skew>0 then writeln(_LogSkew,Skew)
-    else DisplaySectorList(SkewTable,Sec_Zahl,Modus);
-    write(_BlockSize,Zpot[BlockSize-3],'k, ');
-    write(Directory*Zpot[BlockSize+2],_DirEntries);
-    write(Offset,_Reserved);
-    end;
-  if not CmdLine then begin writeln; WaitTaste; end;
+  if CmdLine then write(^M^J) else InputFormatNumber;
+  repeat
+    if not CmdLine then clrscr;
+    writeln(_FormNumber,AktNum);
+    writeln(_FormName,AktForm.Name);
+    with AktForm do begin
+      DisplayPhysicalFormat(AktForm,true);
+      if boolean(Invers) then write(_Invert);
+      if boolean(Multi) then write(_Multi);
+      if TTrans>0 then writeln(_TrkTrans,TTrans);
+      if not CmdLine then writeln;
+      if Skew>0 then writeln(_LogSkew,Skew)
+      else DisplaySectorList(SkewTable,Sec_Zahl,Modus);
+      write(_BlockSize,Zpot[BlockSize-3],'k, ');
+      write(Directory*Zpot[BlockSize+2],_DirEntries);
+      write(Offset,_Reserved);
+      end;
+    if CmdLine then xc:='x' else begin
+      write(^M^J,_PrevNextForm);
+      read(kbd,xc);
+      writeln(^M^J);
+      if (xc='+') and (AktNum<filesize(Datei)) then AktNum:=succ(AktNum)
+      else if (xc='-') and (AktNum>1) then AktNum:=pred(AktNum);
+      seek(Datei,pred(AktNum));
+      blockread(Datei,AktForm,1);
+      end;
+  until (xc<>'+') and (xc<>'-');
   end;
-
+
