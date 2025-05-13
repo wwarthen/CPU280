@@ -94,4 +94,9 @@ V1.03 of 01 July 2007:
 V1.04 of 06 July 2008:
 - Added output of format list to an ASCII text file (formatted identical
   to printed list).
-
+
+V1.05 of 30 January 2025:
+- Added +/- navigation to the "display format data" function.
+
+# eof #
+
