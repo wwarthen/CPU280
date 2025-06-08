@@ -289,7 +289,7 @@ DTbl::	defw	DPHA,DPHB,DPHC,DPHD ; Floppy Disk equipment On-Board
     Part aset 0
     irpc i,<HIJKLMNOP>		; Up to nine possible partitions
       Part aset Part+1
-      if Part <= Parts
+      if Part le Parts
 	defw	DPH&i		; existing partition: enter DPH
       else
 	defw	0		; otherwise set Null
